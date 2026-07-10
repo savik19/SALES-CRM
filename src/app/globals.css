@@ -1,0 +1,16 @@
+/* IBM Plex Sans — loaded locally-friendly via Google Fonts import.
+   If you self-host later (Next/font or Laravel assets), drop this @import. */
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  @apply bg-slate-50 text-slate-800 antialiased;
+}
