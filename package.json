@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "description": "ScriptGuru in-house sales CRM — frontend (React / Next.js). Mock data now; Laravel APIs later.",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
