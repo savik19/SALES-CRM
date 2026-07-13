@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import readXlsxFile from "read-excel-file/browser";
+import ExcelJS from "exceljs";
 import { IMPORT_SHEET_HEADERS } from "./columns";
 import {
   validateHeaders,
   buildLeadFromRow,
   classifyRows,
+  isBlankRow,
 } from "@/lib/leadImport";
 
 const tag = {
@@ -15,8 +16,24 @@ const tag = {
   error: "bg-red-100 text-red-700",
 };
 
+// Convert an ExcelJS cell value (which can be a string, number, Date, rich text,
+// hyperlink, or formula object) to a plain value.
+function cellValue(v) {
+  if (v === null || v === undefined) return "";
+  if (v instanceof Date) return v;
+  if (typeof v === "object") {
+    if (Array.isArray(v.richText))
+      return v.richText.map((t) => t.text).join("");
+    if (v.text !== undefined) return v.text; // hyperlink { text, hyperlink }
+    if (v.result !== undefined) return v.result; // formula { formula, result }
+    if (v.error) return "";
+    return "";
+  }
+  return v;
+}
+
 // Excel import flow (BDM only): upload → validate headers → preview + dedupe →
-// commit → summary. Parsing/validation logic lives in src/lib/leadImport.js.
+// commit → summary. Parsing uses ExcelJS; the logic lives in lib/leadImport.js.
 export default function ImportModal({
   open,
   onClose,
@@ -25,16 +42,20 @@ export default function ImportModal({
 }) {
   const [stage, setStage] = useState("select"); // select | preview | done
   const [fileName, setFileName] = useState("");
+  const [loading, setLoading] = useState(false);
   const [headerError, setHeaderError] = useState(null);
   const [parseError, setParseError] = useState("");
+  const [warnings, setWarnings] = useState([]);
   const [classified, setClassified] = useState([]);
   const [summary, setSummary] = useState(null);
 
   function reset() {
     setStage("select");
     setFileName("");
+    setLoading(false);
     setHeaderError(null);
     setParseError("");
+    setWarnings([]);
     setClassified([]);
     setSummary(null);
   }
@@ -50,28 +71,47 @@ export default function ImportModal({
     setFileName(file.name);
     setParseError("");
     setHeaderError(null);
+    setWarnings([]);
+    setLoading(true);
     try {
-      let rows = await readXlsxFile(file);
-      // Normalise: some builds return the first sheet's rows directly (an array
-      // of arrays); others wrap sheets as [{ sheet, data }]. Handle both.
-      if (
-        rows.length &&
-        !Array.isArray(rows[0]) &&
-        Array.isArray(rows[0]?.data)
-      ) {
-        rows = rows[0].data;
-      }
-      if (!rows.length) {
+      const buffer = await file.arrayBuffer();
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(buffer);
+      const ws = wb.worksheets[0];
+      if (!ws || ws.rowCount === 0) {
         setParseError("The sheet is empty.");
         return;
       }
+
+      // Read every row as a dense, column-aligned array.
+      const colCount = ws.columnCount;
+      const rows = [];
+      ws.eachRow({ includeEmpty: false }, (row) => {
+        const cells = [];
+        for (let i = 1; i <= colCount; i++) {
+          cells.push(cellValue(row.getCell(i).value));
+        }
+        rows.push(cells);
+      });
+      if (!rows.length) {
+        setParseError("The sheet has no rows.");
+        return;
+      }
+
       const headers = rows[0].map((h) => (h === null ? "" : String(h).trim()));
       const check = validateHeaders(headers);
       if (!check.ok) {
         setHeaderError(check);
         return;
       }
-      const leads = rows.slice(1).map((r) => buildLeadFromRow(headers, r));
+      if (check.unexpected.length) {
+        setWarnings([
+          `Ignoring ${check.unexpected.length} extra column(s): ${check.unexpected.join(", ")}`,
+        ]);
+      }
+
+      const dataRows = rows.slice(1).filter((r) => !isBlankRow(r));
+      const leads = dataRows.map((r) => buildLeadFromRow(check.indexByKey, r));
       setClassified(classifyRows(leads, existingLeads));
       setStage("preview");
     } catch (err) {
@@ -79,6 +119,10 @@ export default function ImportModal({
       setParseError(
         "Could not read the file. Make sure it is a valid .xlsx sheet."
       );
+    } finally {
+      setLoading(false);
+      // allow re-selecting the same file
+      e.target.value = "";
     }
   }
 
@@ -104,7 +148,6 @@ export default function ImportModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
       <div className="flex max-h-[85vh] w-full max-w-3xl flex-col rounded-xl bg-white shadow-xl">
-        {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <h2 className="text-lg font-semibold text-slate-900">
             Import leads from Excel
@@ -125,7 +168,8 @@ export default function ImportModal({
             <div>
               <p className="text-sm text-slate-600">
                 Upload the scraped <code>.xlsx</code> sheet. It must contain
-                exactly these {IMPORT_SHEET_HEADERS.length} columns:
+                these {IMPORT_SHEET_HEADERS.length} columns (extra columns are
+                ignored; common header variants are matched automatically):
               </p>
               <div className="mt-2 flex flex-wrap gap-1">
                 {IMPORT_SHEET_HEADERS.map((h) => (
@@ -138,10 +182,18 @@ export default function ImportModal({
                 ))}
               </div>
 
-              <label className="mt-5 flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-300 px-6 py-10 text-center hover:border-brand hover:bg-brand-50/40">
-                <span className="text-2xl">📄</span>
+              <label
+                className={`mt-5 flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-6 py-10 text-center ${
+                  loading
+                    ? "border-brand bg-brand-50/40"
+                    : "border-slate-300 hover:border-brand hover:bg-brand-50/40"
+                }`}
+              >
+                <span className="text-2xl">{loading ? "⏳" : "📄"}</span>
                 <span className="mt-2 text-sm font-medium text-slate-700">
-                  {fileName || "Choose an .xlsx file"}
+                  {loading
+                    ? `Reading ${fileName}…`
+                    : fileName || "Choose an .xlsx file"}
                 </span>
                 <span className="mt-1 text-xs text-slate-400">
                   Only the header row + data rows are read.
@@ -150,6 +202,7 @@ export default function ImportModal({
                   type="file"
                   accept=".xlsx"
                   className="hidden"
+                  disabled={loading}
                   onChange={onFile}
                 />
               </label>
@@ -163,7 +216,7 @@ export default function ImportModal({
               {headerError ? (
                 <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                   <p className="font-medium">
-                    The sheet headers don&apos;t match. Nothing was imported.
+                    The sheet is missing required columns. Nothing was imported.
                   </p>
                   {headerError.missing.length ? (
                     <p className="mt-1">
@@ -173,9 +226,7 @@ export default function ImportModal({
                   ) : null}
                   {headerError.unexpected.length ? (
                     <p className="mt-1">
-                      <span className="font-medium">
-                        Unexpected / misnamed:
-                      </span>{" "}
+                      <span className="font-medium">Unrecognised columns:</span>{" "}
                       {headerError.unexpected.join(", ")}
                     </p>
                   ) : null}
@@ -187,6 +238,11 @@ export default function ImportModal({
           {/* STAGE: preview */}
           {stage === "preview" ? (
             <div>
+              {warnings.length ? (
+                <p className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                  {warnings.join(" ")}
+                </p>
+              ) : null}
               <div className="mb-3 flex flex-wrap gap-2 text-sm">
                 <span className="rounded-full bg-green-100 px-2.5 py-0.5 font-medium text-green-700">
                   {counts.new} new
@@ -290,7 +346,6 @@ export default function ImportModal({
           ) : null}
         </div>
 
-        {/* Footer */}
         <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-6 py-4">
           {stage === "preview" ? (
             <>

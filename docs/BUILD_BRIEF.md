@@ -56,6 +56,14 @@
     DSC, BDM-set. Bulk-assign via checkboxes.
   - Filters gained an "Unassigned" DSC option. ~30 mock leads (unassigned News,
     4 DSCs, blanks, Won/Lost amounts, a 4-service row). Verified in a browser.
+- **2026-07-13** — Hardened the Excel import for real scraped sheets: switched
+  the parser to **ExcelJS** (reliably reads real `.xlsx`, incl. date cells),
+  made header matching **tolerant** (case/spacing/punctuation + common aliases
+  like "Phone Number"/"Lead ID"/"Location"), **ignore extra columns** (shown as
+  a warning, only block on genuinely missing required columns), skip blank rows,
+  and added a **loading state** so the modal never sits dead after a file pick.
+  Verified with a messy fixture (aliased + reordered headers, an extra column,
+  real date cells): 2 new / 1 duplicate / 1 error, dates rendered correctly.
 
 ---
 
