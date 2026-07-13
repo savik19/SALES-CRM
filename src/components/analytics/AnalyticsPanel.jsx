@@ -192,7 +192,7 @@ function DscView({ name, data }) {
         <StatTile label="Pipeline value" value={money(m.pipelineValue)} />
         <StatTile label="Won value" value={money(m.wonValue)} tone="good" />
       </div>
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+      <div className="grid grid-cols-1 items-start gap-3 lg:grid-cols-3">
         <TargetMeter
           label="Monthly leads target"
           done={m.won}
@@ -229,7 +229,7 @@ function TeamView({ data }) {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+      <div className="grid grid-cols-1 items-start gap-3 lg:grid-cols-3">
         <TargetMeter
           label="Company monthly target"
           done={companyClosed}
@@ -301,21 +301,46 @@ function TeamView({ data }) {
   );
 }
 
-// Role-aware analytics panel. `variant` is "dsc" (own) or "team" (BDM/Admin).
-export default function AnalyticsPanel({ variant, dscName, data }) {
+// Role-aware, collapsible analytics section. `variant` is "dsc" (own) or "team"
+// (BDM/Admin). `collapsed` + `onToggle` let the user hide/show it in place; the
+// header bar stays visible when collapsed so it can be reopened.
+export default function AnalyticsPanel({
+  variant,
+  dscName,
+  data,
+  collapsed,
+  onToggle,
+}) {
   return (
-    <div className="border-b border-slate-200 bg-slate-50 px-6 py-4">
-      <div className="mb-3 flex items-center gap-2">
+    <section className="border-b border-slate-200 bg-slate-50">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center gap-2 px-6 py-3 text-left"
+        aria-expanded={!collapsed}
+      >
+        <span
+          className={`text-slate-400 transition-transform ${collapsed ? "" : "rotate-90"}`}
+        >
+          ▸
+        </span>
         <h3 className="text-sm font-semibold text-slate-700">
           {variant === "dsc" ? "My performance" : "Team performance"}
         </h3>
         <span className="text-xs text-slate-400">· this month</span>
-      </div>
-      {variant === "dsc" ? (
-        <DscView name={dscName} data={data} />
-      ) : (
-        <TeamView data={data} />
-      )}
-    </div>
+        <span className="ml-auto text-xs font-medium text-slate-400">
+          {collapsed ? "Show" : "Hide"}
+        </span>
+      </button>
+      {!collapsed ? (
+        <div className="px-6 pb-4">
+          {variant === "dsc" ? (
+            <DscView name={dscName} data={data} />
+          ) : (
+            <TeamView data={data} />
+          )}
+        </div>
+      ) : null}
+    </section>
   );
 }
