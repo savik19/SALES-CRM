@@ -1,12 +1,13 @@
 "use client";
 
+import { Fragment } from "react";
 import { StatusBadge, PriorityBadge } from "./LeadStatusBadge";
 import ServiceChips from "./ServiceChips";
+import ExpandableCell from "./ExpandableCell";
 import { dscName } from "@/data/mockLeads";
 import {
   formatDate,
   formatINR,
-  orDash,
   discountPctLabel,
   isOnOrBefore,
 } from "@/lib/format";
@@ -16,14 +17,20 @@ function SortArrow({ direction }) {
   return <span className="text-brand">{direction === "asc" ? "↑" : "↓"}</span>;
 }
 
-// Render one cell based on the column key. Presentational only.
+// Render one cell based on the column key. Long/among-many values truncate and
+// expand on click (ExpandableCell); the layout never breaks.
 function Cell({ column, lead }) {
   const key = column.key;
   const value = lead[key];
 
   switch (key) {
     case "company":
-      return <span className="font-medium text-slate-900">{lead.company}</span>;
+      return (
+        <ExpandableCell
+          text={lead.company}
+          className="font-medium text-slate-900"
+        />
+      );
     case "leadId":
       return (
         <span className="font-mono text-xs text-slate-500">{lead.leadId}</span>
@@ -33,8 +40,10 @@ function Cell({ column, lead }) {
     case "priority":
       return <PriorityBadge priority={lead.priority} />;
     case "assignedDscId":
-      return (
-        <span className="whitespace-nowrap">{dscName(lead.assignedDscId)}</span>
+      return value ? (
+        <span className="truncate">{dscName(value)}</span>
+      ) : (
+        <span className="italic text-slate-400">Unassigned</span>
       );
     case "servicesPitched":
     case "servicesInterested":
@@ -42,22 +51,18 @@ function Cell({ column, lead }) {
       return <ServiceChips values={value} />;
     case "quotedAmount":
     case "closedAmount":
-      return (
-        <span className="whitespace-nowrap tabular-nums">
-          {formatINR(value)}
-        </span>
-      );
+      return <span className="tabular-nums">{formatINR(value)}</span>;
     case "discountPct":
       return <span className="tabular-nums">{discountPctLabel(lead)}</span>;
     case "attemptCount":
       return <span className="tabular-nums">{value ?? 0}</span>;
     case "lastContactDate":
-      return <span className="whitespace-nowrap">{formatDate(value)}</span>;
+      return <span>{formatDate(value)}</span>;
     case "nextFollowUpDate": {
       const overdue = isOnOrBefore(value);
       return (
         <span
-          className={`whitespace-nowrap ${overdue ? "font-medium text-red-600" : ""}`}
+          className={overdue ? "font-medium text-red-600" : ""}
           title={overdue ? "Follow-up due" : undefined}
         >
           {formatDate(value)}
@@ -66,42 +71,60 @@ function Cell({ column, lead }) {
       );
     }
     case "website":
-    case "linkedinUrl": {
-      if (!value) return <span className="text-slate-400">—</span>;
-      return (
-        <a
-          href={value}
-          target="_blank"
-          rel="noreferrer"
-          onClick={(e) => e.stopPropagation()}
-          className="text-brand hover:underline"
-        >
-          {value.replace(/^https?:\/\//, "")}
-        </a>
-      );
-    }
-    case "notes":
-      return (
-        <span className="block max-w-xs truncate text-slate-600" title={value}>
-          {orDash(value)}
-        </span>
-      );
+    case "linkedinUrl":
+      return <ExpandableCell text={value} className="text-brand" />;
     default:
-      return <span className="text-slate-600">{orDash(value)}</span>;
+      return <ExpandableCell text={value} />;
   }
 }
 
-// Presentational table — does NOT fetch or filter. Parent passes the already
-// filtered + sorted `leads`, the ordered `columns` to show, and sort handlers.
+// Drag-to-resize handle on a column's right edge.
+function ResizeHandle({ onResize, width }) {
+  function onPointerDown(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = width;
+    function move(ev) {
+      onResize(Math.max(80, startW + (ev.clientX - startX)));
+    }
+    function up() {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    }
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }
+  return (
+    <span
+      onPointerDown={onPointerDown}
+      className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize select-none hover:bg-brand/40"
+      title="Drag to resize"
+    />
+  );
+}
+
+// Presentational table. Fixed layout + per-column widths so cells truncate
+// cleanly and columns are resizable. Does NOT fetch, filter, or sort.
 export default function LeadTable({
   leads,
   columns,
+  widths,
+  onResize,
   sortBy,
   sortDir,
   onSort,
-  onRowClick,
-  selectedId,
+  selectable = false,
+  selectedIds,
+  onToggleSelect,
+  onToggleSelectAll,
+  allSelected,
+  expandedId,
+  onToggleExpand,
+  renderExpanded,
 }) {
+  const totalCols = columns.length + 1 + (selectable ? 1 : 0);
+
   if (leads.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center px-6 py-20 text-center">
@@ -118,47 +141,108 @@ export default function LeadTable({
 
   return (
     <div className="overflow-x-auto">
-      <table className="min-w-full border-collapse text-sm">
+      <table className="w-full table-fixed border-collapse text-sm">
+        <colgroup>
+          <col style={{ width: 40 }} />
+          {selectable ? <col style={{ width: 40 }} /> : null}
+          {columns.map((col) => (
+            <col
+              key={col.key}
+              style={{ width: widths[col.key] || col.width }}
+            />
+          ))}
+        </colgroup>
+
         <thead>
           <tr className="border-b border-slate-200 bg-slate-50 text-left">
+            <th className="px-2 py-3" />
+            {selectable ? (
+              <th className="px-2 py-3">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={onToggleSelectAll}
+                  className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
+                  aria-label="Select all"
+                />
+              </th>
+            ) : null}
             {columns.map((col) => (
               <th
                 key={col.key}
                 scope="col"
-                className="whitespace-nowrap px-4 py-3 font-semibold text-slate-600"
+                className="relative px-4 py-3 font-semibold text-slate-600"
               >
                 <button
                   type="button"
                   onClick={() => onSort(col.key)}
-                  className="inline-flex items-center gap-1 hover:text-slate-900"
+                  className="inline-flex max-w-full items-center gap-1 truncate hover:text-slate-900"
                 >
-                  {col.label}
+                  <span className="truncate">{col.label}</span>
                   <SortArrow direction={sortBy === col.key ? sortDir : null} />
                 </button>
+                <ResizeHandle
+                  width={widths[col.key] || col.width}
+                  onResize={(w) => onResize(col.key, w)}
+                />
               </th>
             ))}
           </tr>
         </thead>
+
         <tbody>
           {leads.map((lead) => {
-            const selected = lead.leadId === selectedId;
+            const selected = selectedIds?.has(lead.leadId);
+            const isExpanded = expandedId === lead.leadId;
             return (
-              <tr
-                key={lead.leadId}
-                onClick={() => onRowClick(lead)}
-                className={`cursor-pointer border-b border-slate-100 transition-colors ${
-                  selected ? "bg-brand-50" : "hover:bg-slate-50"
-                }`}
-              >
-                {columns.map((col) => (
-                  <td
-                    key={col.key}
-                    className="px-4 py-3 align-top text-slate-700"
-                  >
-                    <Cell column={col} lead={lead} />
+              <Fragment key={lead.leadId}>
+                <tr
+                  className={`border-b border-slate-100 ${
+                    selected ? "bg-brand-50" : "hover:bg-slate-50"
+                  }`}
+                >
+                  <td className="px-2 py-3 align-top">
+                    <button
+                      type="button"
+                      onClick={() => onToggleExpand(lead.leadId)}
+                      className="flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+                      aria-label={isExpanded ? "Collapse row" : "Expand row"}
+                    >
+                      <span
+                        className={`transition-transform ${isExpanded ? "rotate-90" : ""}`}
+                      >
+                        ▸
+                      </span>
+                    </button>
                   </td>
-                ))}
-              </tr>
+                  {selectable ? (
+                    <td className="px-2 py-3 align-top">
+                      <input
+                        type="checkbox"
+                        checked={!!selected}
+                        onChange={() => onToggleSelect(lead.leadId)}
+                        className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
+                        aria-label={`Select ${lead.company}`}
+                      />
+                    </td>
+                  ) : null}
+                  {columns.map((col) => (
+                    <td
+                      key={col.key}
+                      className="overflow-hidden px-4 py-3 align-top text-slate-700"
+                    >
+                      <Cell column={col} lead={lead} />
+                    </td>
+                  ))}
+                </tr>
+                {isExpanded ? (
+                  <tr className="bg-slate-50/60">
+                    <td colSpan={totalCols} className="px-6 py-4">
+                      {renderExpanded(lead)}
+                    </td>
+                  </tr>
+                ) : null}
+              </Fragment>
             );
           })}
         </tbody>

@@ -17,30 +17,38 @@
 import { MOCK_LEADS } from "@/data/mockLeads";
 import { API_BASE_URL, USE_MOCK_DATA } from "@/lib/config";
 
-// Simulate a tiny network delay so loading states are exercised during dev.
-// Only used by the mock branch; delete along with the mock data later.
 function simulateLatency(value, ms = 150) {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms));
 }
 
-// Small helper for the real API branch: fetch JSON or throw a useful error.
 async function apiGet(path) {
   const res = await fetch(`${API_BASE_URL}${path}`, {
     headers: { Accept: "application/json" },
-    // TODO(backend): add auth headers/credentials once auth exists, e.g.
-    // credentials: "include" (Sanctum cookie) or an Authorization token.
+    // TODO(backend): add auth headers/credentials once auth exists.
   });
   if (!res.ok) throw new Error(`GET ${path} failed: ${res.status}`);
   return res.json();
 }
 
+async function apiSend(method, path, body) {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    method,
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`${method} ${path} failed: ${res.status}`);
+  return res.json();
+}
+
 /**
- * GET /api/leads — list leads.
+ * GET /api/leads — list leads. The backend scopes by the authenticated user;
+ * the mock returns everything and the UI applies the role view (see the page).
  * @returns {Promise<import('@/lib/types').Lead[]>}
  */
 export async function getLeads() {
   if (!USE_MOCK_DATA) return apiGet("/api/leads");
-  return simulateLatency(MOCK_LEADS);
+  // Return a shallow copy so the page can own a mutable working set.
+  return simulateLatency(MOCK_LEADS.map((l) => ({ ...l })));
 }
 
 /**
@@ -51,33 +59,40 @@ export async function getLeads() {
 export async function getLeadById(leadId) {
   if (!USE_MOCK_DATA) return apiGet(`/api/leads/${leadId}`);
   const lead = MOCK_LEADS.find((l) => l.leadId === leadId) || null;
-  return simulateLatency(lead);
+  return simulateLatency(lead ? { ...lead } : null);
 }
 
 /**
- * PATCH /api/leads/:leadId — update a lead. (Not used by this read-only screen
- * yet; kept as the write template for later.)
+ * PATCH /api/leads/:leadId — update a lead's fields (status, assignee, etc.).
  * @param {string} leadId
  * @param {Partial<import('@/lib/types').Lead>} changes
  * @returns {Promise<import('@/lib/types').Lead>}
  */
 export async function updateLead(leadId, changes) {
-  if (!USE_MOCK_DATA) {
-    const res = await fetch(`${API_BASE_URL}/api/leads/${leadId}`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify(changes),
-    });
-    if (!res.ok)
-      throw new Error(`PATCH /api/leads/${leadId} failed: ${res.status}`);
-    return res.json();
-  }
+  if (!USE_MOCK_DATA) return apiSend("PATCH", `/api/leads/${leadId}`, changes);
+  // Mock: does not persist; the page keeps the working copy.
+  return simulateLatency({ leadId, ...changes });
+}
 
-  // ---- mock branch (does NOT persist) ----
-  const lead = MOCK_LEADS.find((l) => l.leadId === leadId);
-  if (!lead) throw new Error(`Lead ${leadId} not found`);
-  return simulateLatency({ ...lead, ...changes });
+/**
+ * POST /api/leads/assign — bulk-assign leads to one DSC (BDM action).
+ * @param {string[]} leadIds
+ * @param {string} dscId
+ * @returns {Promise<{updated: string[]}>}
+ */
+export async function assignLeads(leadIds, dscId) {
+  if (!USE_MOCK_DATA)
+    return apiSend("POST", `/api/leads/assign`, { leadIds, dscId });
+  return simulateLatency({ updated: leadIds });
+}
+
+/**
+ * POST /api/leads/import — commit imported rows (BDM action). Each row arrives
+ * as Lead Status = "New" and Assigned DSC = "" (unassigned).
+ * @param {import('@/lib/types').Lead[]} rows
+ * @returns {Promise<{imported: number}>}
+ */
+export async function importLeads(rows) {
+  if (!USE_MOCK_DATA) return apiSend("POST", `/api/leads/import`, { rows });
+  return simulateLatency({ imported: rows.length });
 }

@@ -38,14 +38,21 @@ src/
   components/
     layout/                # Sidebar, Topbar — chrome shared across screens
     leads/                 # Lead Table feature:
-                           #   columns.js (26-col metadata), LeadTable, LeadToolbar,
-                           #   MultiSelectDropdown, ColumnPicker, LeadDetailPanel,
-                           #   LeadStatusBadge, ServiceChips, statusStyles.js
+                           #   columns.js (26-col metadata: order, defaults,
+                           #     sort type, import flag, width)
+                           #   LeadTable (resizable/truncating cols, checkboxes,
+                           #     row expansion), LeadToolbar, MultiSelectDropdown,
+                           #     ColumnPicker, ExpandedLeadRow (inline editor),
+                           #     ImportModal, BulkAssignBar, RoleSwitcher,
+                           #     LeadStatusBadge, ServiceChips, ExpandableCell,
+                           #     statusStyles.js
   data/                    # ⚠️ MOCK DATA ONLY — throwaway, replaced by the API
-    mockLeads.js           #   SINGLE data file: option lists + DSCs + ~20 leads
+    mockLeads.js           #   SINGLE data file: option lists + team (BDM+DSCs)
+                           #   + ~30 leads
   lib/
     config.js              # env-driven config (API base URL, mock flag)
     leadsApi.js            # ⭐ DATA ACCESS LAYER — swap mock → API here
+    leadImport.js          # pure Excel-import helpers (validate/dedupe/build)
     types.js               # JSDoc typedefs = the shared data contract
     format.js              # pure helpers (dates, INR, discount %, dashes)
 docs/                      # this documentation set

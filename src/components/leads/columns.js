@@ -1,25 +1,26 @@
 // ---------------------------------------------------------------------------
 // Column definitions for the Lead Table — the single source for order,
-// grouping, default visibility, sort behaviour and search inclusion.
+// grouping, default visibility, sort behaviour, search inclusion, whether the
+// field comes from the Excel import sheet, and default width.
 // ---------------------------------------------------------------------------
-// ORDER MATTERS: this array is the exact left-to-right order (identity →
-// contact → location → status → ownership → commercial → dates → notes).
-// The column-picker lists them in this same order. Do not reshuffle.
+// ORDER MATTERS: this array is the exact left-to-right order. The column-picker
+// and the Excel-import validation both derive from it. Do not reshuffle.
 //
 // Per column:
 //   key            field on the lead (or "discountPct" for the computed one)
-//   label          header text
-//   group          logical group (used as section headers in the column-picker)
+//   label          header text (also the exact header expected in the import sheet)
+//   group          logical group (section headers in the picker / expanded row)
 //   defaultVisible whether it shows before the user customises columns
-//   sortType       how to compare when sorting (see LeadTable):
-//                    text | number | date | status | priority | dsc | services
-//                    | discount
+//   sortType       text | number | date | status | priority | dsc | services | discount
 //   searchable     included in the global search haystack
+//   inImportSheet  true = present in the scraped Excel sheet (columns 1–17);
+//                  false = CRM-only, filled in by the team later (columns 18–26)
 //   computed       true = derived on the fly, never stored (Discount %)
+//   width          default column width in px (user can drag to resize)
 // ---------------------------------------------------------------------------
 
 export const COLUMNS = [
-  // — identity —
+  // 1–17 — present in the import sheet
   {
     key: "leadId",
     label: "Lead Id",
@@ -27,6 +28,8 @@ export const COLUMNS = [
     defaultVisible: true,
     sortType: "text",
     searchable: true,
+    inImportSheet: true,
+    width: 120,
   },
   {
     key: "company",
@@ -35,6 +38,8 @@ export const COLUMNS = [
     defaultVisible: true,
     sortType: "text",
     searchable: true,
+    inImportSheet: true,
+    width: 190,
   },
   {
     key: "industry",
@@ -42,6 +47,8 @@ export const COLUMNS = [
     group: "Identity",
     defaultVisible: true,
     sortType: "text",
+    inImportSheet: true,
+    width: 160,
   },
   {
     key: "contactPerson",
@@ -50,6 +57,8 @@ export const COLUMNS = [
     defaultVisible: true,
     sortType: "text",
     searchable: true,
+    inImportSheet: true,
+    width: 160,
   },
   {
     key: "roleTitle",
@@ -57,9 +66,9 @@ export const COLUMNS = [
     group: "Identity",
     defaultVisible: false,
     sortType: "text",
+    inImportSheet: true,
+    width: 150,
   },
-
-  // — contact —
   {
     key: "phone",
     label: "Phone",
@@ -67,6 +76,8 @@ export const COLUMNS = [
     defaultVisible: true,
     sortType: "text",
     searchable: true,
+    inImportSheet: true,
+    width: 170,
   },
   {
     key: "email",
@@ -75,9 +86,9 @@ export const COLUMNS = [
     defaultVisible: false,
     sortType: "text",
     searchable: true,
+    inImportSheet: true,
+    width: 190,
   },
-
-  // — location —
   {
     key: "city",
     label: "City",
@@ -85,6 +96,8 @@ export const COLUMNS = [
     defaultVisible: true,
     sortType: "text",
     searchable: true,
+    inImportSheet: true,
+    width: 120,
   },
   {
     key: "country",
@@ -92,6 +105,8 @@ export const COLUMNS = [
     group: "Location",
     defaultVisible: false,
     sortType: "text",
+    inImportSheet: true,
+    width: 110,
   },
   {
     key: "website",
@@ -99,6 +114,8 @@ export const COLUMNS = [
     group: "Location",
     defaultVisible: false,
     sortType: "text",
+    inImportSheet: true,
+    width: 170,
   },
   {
     key: "linkedinUrl",
@@ -106,15 +123,17 @@ export const COLUMNS = [
     group: "Location",
     defaultVisible: false,
     sortType: "text",
+    inImportSheet: true,
+    width: 170,
   },
-
-  // — status / source —
   {
     key: "leadSource",
     label: "Lead Source",
     group: "Status",
     defaultVisible: false,
     sortType: "text",
+    inImportSheet: true,
+    width: 130,
   },
   {
     key: "leadStatus",
@@ -122,6 +141,8 @@ export const COLUMNS = [
     group: "Status",
     defaultVisible: true,
     sortType: "status",
+    inImportSheet: true,
+    width: 150,
   },
   {
     key: "priority",
@@ -129,83 +150,17 @@ export const COLUMNS = [
     group: "Status",
     defaultVisible: true,
     sortType: "priority",
+    inImportSheet: true,
+    width: 110,
   },
-
-  // — ownership —
-  {
-    key: "assignedDscId",
-    label: "Assigned DSC",
-    group: "Ownership",
-    defaultVisible: true,
-    sortType: "dsc",
-  },
-  {
-    key: "attemptCount",
-    label: "Attempt Count",
-    group: "Ownership",
-    defaultVisible: false,
-    sortType: "number",
-  },
-
-  // — commercial —
-  {
-    key: "servicesPitched",
-    label: "Services Pitched",
-    group: "Commercial",
-    defaultVisible: false,
-    sortType: "services",
-  },
-  {
-    key: "servicesInterested",
-    label: "Services Interested",
-    group: "Commercial",
-    defaultVisible: false,
-    sortType: "services",
-  },
-  {
-    key: "servicesOnboarded",
-    label: "Services Onboarded",
-    group: "Commercial",
-    defaultVisible: false,
-    sortType: "services",
-  },
-  {
-    key: "quotedAmount",
-    label: "Quoted Amount",
-    group: "Commercial",
-    defaultVisible: false,
-    sortType: "number",
-  },
-  {
-    key: "closedAmount",
-    label: "Closed Amount",
-    group: "Commercial",
-    defaultVisible: false,
-    sortType: "number",
-  },
-  {
-    key: "discountPct",
-    label: "Discount %",
-    group: "Commercial",
-    defaultVisible: false,
-    sortType: "discount",
-    computed: true,
-  },
-  {
-    key: "lostReason",
-    label: "Lost Reason",
-    group: "Commercial",
-    defaultVisible: false,
-    sortType: "text",
-  },
-
-  // — dates —
   {
     key: "lastContactDate",
     label: "Last Contact Date",
     group: "Dates",
     defaultVisible: false,
     sortType: "date",
+    inImportSheet: true,
+    width: 150,
   },
   {
     key: "nextFollowUpDate",
@@ -213,9 +168,9 @@ export const COLUMNS = [
     group: "Dates",
     defaultVisible: true,
     sortType: "date",
+    inImportSheet: true,
+    width: 160,
   },
-
-  // — notes —
   {
     key: "notes",
     label: "Notes",
@@ -223,6 +178,92 @@ export const COLUMNS = [
     defaultVisible: false,
     sortType: "text",
     searchable: true,
+    inImportSheet: true,
+    width: 240,
+  },
+
+  // 18–26 — CRM-only fields (not in the import sheet)
+  {
+    key: "assignedDscId",
+    label: "Assigned DSC",
+    group: "Ownership",
+    defaultVisible: true,
+    sortType: "dsc",
+    inImportSheet: false,
+    width: 150,
+  },
+  {
+    key: "attemptCount",
+    label: "Attempt Count",
+    group: "Ownership",
+    defaultVisible: false,
+    sortType: "number",
+    inImportSheet: false,
+    width: 120,
+  },
+  {
+    key: "servicesPitched",
+    label: "Services Pitched",
+    group: "Commercial",
+    defaultVisible: false,
+    sortType: "services",
+    inImportSheet: false,
+    width: 190,
+  },
+  {
+    key: "servicesInterested",
+    label: "Services Interested",
+    group: "Commercial",
+    defaultVisible: false,
+    sortType: "services",
+    inImportSheet: false,
+    width: 190,
+  },
+  {
+    key: "servicesOnboarded",
+    label: "Services Onboarded",
+    group: "Commercial",
+    defaultVisible: false,
+    sortType: "services",
+    inImportSheet: false,
+    width: 190,
+  },
+  {
+    key: "quotedAmount",
+    label: "Quoted Amount",
+    group: "Commercial",
+    defaultVisible: false,
+    sortType: "number",
+    inImportSheet: false,
+    width: 140,
+  },
+  {
+    key: "closedAmount",
+    label: "Closed Amount",
+    group: "Commercial",
+    defaultVisible: false,
+    sortType: "number",
+    inImportSheet: false,
+    width: 140,
+  },
+  {
+    key: "discountPct",
+    label: "Discount %",
+    group: "Commercial",
+    defaultVisible: false,
+    sortType: "discount",
+    inImportSheet: false,
+    computed: true,
+    width: 110,
+  },
+  {
+    key: "lostReason",
+    label: "Lost Reason",
+    group: "Commercial",
+    defaultVisible: false,
+    sortType: "text",
+    inImportSheet: false,
+    width: 170,
   },
 ];
 
@@ -236,10 +277,20 @@ export const SEARCHABLE_KEYS = COLUMNS.filter((c) => c.searchable).map(
   (c) => c.key
 );
 
-// Column groups in order (for the column-picker section headers).
+// The 17 headers expected in the scraped Excel import sheet, in order.
+export const IMPORT_SHEET_COLUMNS = COLUMNS.filter((c) => c.inImportSheet);
+export const IMPORT_SHEET_HEADERS = IMPORT_SHEET_COLUMNS.map((c) => c.label);
+
+// Column groups in order (section headers in the picker + expanded row).
 export const COLUMN_GROUPS = COLUMNS.reduce((groups, col) => {
   const last = groups[groups.length - 1];
   if (last && last.name === col.group) last.columns.push(col);
   else groups.push({ name: col.group, columns: [col] });
   return groups;
 }, []);
+
+// Lookup by key.
+export const COLUMN_BY_KEY = COLUMNS.reduce((acc, c) => {
+  acc[c.key] = c;
+  return acc;
+}, {});

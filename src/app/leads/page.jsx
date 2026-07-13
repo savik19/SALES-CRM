@@ -4,13 +4,17 @@ import { useEffect, useMemo, useState } from "react";
 import Topbar from "@/components/layout/Topbar";
 import LeadToolbar from "@/components/leads/LeadToolbar";
 import LeadTable from "@/components/leads/LeadTable";
-import LeadDetailPanel from "@/components/leads/LeadDetailPanel";
+import ExpandedLeadRow from "@/components/leads/ExpandedLeadRow";
+import RoleSwitcher from "@/components/leads/RoleSwitcher";
+import BulkAssignBar from "@/components/leads/BulkAssignBar";
+import ImportModal from "@/components/leads/ImportModal";
 import {
   COLUMNS,
+  COLUMN_BY_KEY,
   DEFAULT_VISIBLE_KEYS,
   SEARCHABLE_KEYS,
 } from "@/components/leads/columns";
-import { getLeads } from "@/lib/leadsApi";
+import { getLeads, updateLead, assignLeads } from "@/lib/leadsApi";
 import { discountPct } from "@/lib/format";
 import {
   LEAD_STATUSES,
@@ -18,10 +22,10 @@ import {
   INDUSTRIES,
   LEAD_SOURCES,
   DSCS,
+  USER_BY_ID,
   dscName,
 } from "@/data/mockLeads";
 
-// The six multi-select filters start empty.
 const EMPTY_FILTERS = {
   leadStatus: [],
   priority: [],
@@ -32,67 +36,6 @@ const EMPTY_FILTERS = {
 };
 
 // ---- Sorting ---------------------------------------------------------------
-// Compare two leads on a column, honouring the column's sortType.
-function compareLeads(a, b, column, dir) {
-  const factor = dir === "asc" ? 1 : -1;
-  const key = column.key;
-
-  switch (column.sortType) {
-    case "status": {
-      return (
-        (LEAD_STATUSES.indexOf(a.leadStatus) -
-          LEAD_STATUSES.indexOf(b.leadStatus)) *
-        factor
-      );
-    }
-    case "priority": {
-      return (
-        (PRIORITIES.indexOf(a.priority) - PRIORITIES.indexOf(b.priority)) *
-        factor
-      );
-    }
-    case "dsc": {
-      return (
-        dscName(a.assignedDscId).localeCompare(dscName(b.assignedDscId)) *
-        factor
-      );
-    }
-    case "services": {
-      // By count, then by the joined names.
-      const av = a[key] || [];
-      const bv = b[key] || [];
-      if (av.length !== bv.length) return (av.length - bv.length) * factor;
-      return av.join(",").localeCompare(bv.join(",")) * factor;
-    }
-    case "number": {
-      return compareNumbers(a[key], b[key], factor);
-    }
-    case "discount": {
-      return compareNumbers(discountPct(a), discountPct(b), factor);
-    }
-    case "date": {
-      // Empty dates sort to the bottom regardless of direction.
-      const av = a[key];
-      const bv = b[key];
-      if (!av && !bv) return 0;
-      if (!av) return 1;
-      if (!bv) return -1;
-      return (av < bv ? -1 : av > bv ? 1 : 0) * factor;
-    }
-    default: {
-      // text
-      const av = (a[key] ?? "").toString().toLowerCase();
-      const bv = (b[key] ?? "").toString().toLowerCase();
-      if (av === bv) return 0;
-      // Blanks sort to the bottom.
-      if (!av) return 1;
-      if (!bv) return -1;
-      return av < bv ? -1 * factor : 1 * factor;
-    }
-  }
-}
-
-// Numeric compare with null/empty values pushed to the bottom.
 function compareNumbers(a, b, factor) {
   const an = a === null || a === undefined || a === "" ? null : Number(a);
   const bn = b === null || b === undefined || b === "" ? null : Number(b);
@@ -102,21 +45,67 @@ function compareNumbers(a, b, factor) {
   return (an - bn) * factor;
 }
 
-// ---- Date-range presets on Next Follow-up Date -----------------------------
+function compareLeads(a, b, column, dir) {
+  const factor = dir === "asc" ? 1 : -1;
+  const key = column.key;
+  switch (column.sortType) {
+    case "status":
+      return (
+        (LEAD_STATUSES.indexOf(a.leadStatus) -
+          LEAD_STATUSES.indexOf(b.leadStatus)) *
+        factor
+      );
+    case "priority":
+      return (
+        (PRIORITIES.indexOf(a.priority) - PRIORITIES.indexOf(b.priority)) *
+        factor
+      );
+    case "dsc":
+      return (
+        dscName(a.assignedDscId).localeCompare(dscName(b.assignedDscId)) *
+        factor
+      );
+    case "services": {
+      const av = a[key] || [];
+      const bv = b[key] || [];
+      if (av.length !== bv.length) return (av.length - bv.length) * factor;
+      return av.join(",").localeCompare(bv.join(",")) * factor;
+    }
+    case "number":
+      return compareNumbers(a[key], b[key], factor);
+    case "discount":
+      return compareNumbers(discountPct(a), discountPct(b), factor);
+    case "date": {
+      const av = a[key];
+      const bv = b[key];
+      if (!av && !bv) return 0;
+      if (!av) return 1;
+      if (!bv) return -1;
+      return (av < bv ? -1 : av > bv ? 1 : 0) * factor;
+    }
+    default: {
+      const av = (a[key] ?? "").toString().toLowerCase();
+      const bv = (b[key] ?? "").toString().toLowerCase();
+      if (av === bv) return 0;
+      if (!av) return 1;
+      if (!bv) return -1;
+      return av < bv ? -1 * factor : 1 * factor;
+    }
+  }
+}
+
+// ---- Follow-up date presets ------------------------------------------------
 function matchesDatePreset(iso, preset) {
   if (!preset) return true;
   if (!iso) return false;
   const d = new Date(iso + "T00:00:00");
   if (Number.isNaN(d.getTime())) return false;
-
   const start = new Date();
   start.setHours(0, 0, 0, 0);
-
   if (preset === "today") return d.getTime() === start.getTime();
   if (preset === "overdue") return d.getTime() < start.getTime();
   if (preset === "week") {
-    // Current calendar week, Monday–Sunday.
-    const dow = (start.getDay() + 6) % 7; // 0 = Monday
+    const dow = (start.getDay() + 6) % 7;
     const weekStart = new Date(start);
     weekStart.setDate(start.getDate() - dow);
     const weekEnd = new Date(weekStart);
@@ -128,7 +117,12 @@ function matchesDatePreset(iso, preset) {
 }
 
 export default function LeadsPage() {
-  // ---- Data ----------------------------------------------------------------
+  // ---- Role (demo switcher; real auth replaces this) -----------------------
+  const [viewerId, setViewerId] = useState("u-prakhar");
+  const viewer = USER_BY_ID[viewerId];
+  const isBDM = viewer?.role === "bdm";
+
+  // ---- Data (working set the page owns; import/assign/edit mutate it) -------
   const [allLeads, setAllLeads] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -149,22 +143,36 @@ export default function LeadsPage() {
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [datePreset, setDatePreset] = useState("");
-  const [sort, setSort] = useState({ key: null, dir: null }); // off by default
+  const [sort, setSort] = useState({ key: null, dir: null });
   const [visibleCols, setVisibleCols] = useState(
     () => new Set(DEFAULT_VISIBLE_KEYS)
   );
-  const [selected, setSelected] = useState(null);
+  const [widths, setWidths] = useState(() =>
+    COLUMNS.reduce((acc, c) => {
+      acc[c.key] = c.width;
+      return acc;
+    }, {})
+  );
+  const [expandedId, setExpandedId] = useState(null);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [importOpen, setImportOpen] = useState(false);
+
+  // Reset selection/expansion when the viewer (role) changes.
+  useEffect(() => {
+    setSelectedIds(new Set());
+    setExpandedId(null);
+    if (isBDM) return;
+    // DSCs never filter/select by DSC.
+    setFilters((f) => ({ ...f, assignedDscId: [] }));
+  }, [viewerId, isBDM]);
 
   function handleFilterChange(key, values) {
     setFilters((f) => ({ ...f, [key]: values }));
   }
-
   function clearAllFilters() {
     setFilters(EMPTY_FILTERS);
     setDatePreset("");
   }
-
-  // Sort cycle per column: asc → desc → off.
   function handleSort(key) {
     setSort((s) => {
       if (s.key !== key) return { key, dir: "asc" };
@@ -172,12 +180,21 @@ export default function LeadsPage() {
       return { key: null, dir: null };
     });
   }
+  function handleResize(key, w) {
+    setWidths((prev) => ({ ...prev, [key]: w }));
+  }
 
-  // City options are derived from the data (unique, sorted).
+  // ---- Role scoping: DSC sees only their own leads -------------------------
+  const roleScoped = useMemo(
+    () =>
+      isBDM ? allLeads : allLeads.filter((l) => l.assignedDscId === viewerId),
+    [allLeads, isBDM, viewerId]
+  );
+
   const cityOptions = useMemo(
     () =>
-      Array.from(new Set(allLeads.map((l) => l.city).filter(Boolean))).sort(),
-    [allLeads]
+      Array.from(new Set(roleScoped.map((l) => l.city).filter(Boolean))).sort(),
+    [roleScoped]
   );
 
   const filterOptions = {
@@ -185,11 +202,14 @@ export default function LeadsPage() {
     priority: PRIORITIES,
     industry: INDUSTRIES,
     city: cityOptions,
-    assignedDscId: DSCS.map((d) => ({ value: d.id, label: d.name })),
+    // "Unassigned" first so the BDM can find freshly imported leads.
+    assignedDscId: [
+      { value: "", label: "Unassigned" },
+      ...DSCS.map((d) => ({ value: d.id, label: d.name })),
+    ],
     leadSource: LEAD_SOURCES,
   };
 
-  // Columns to render, in schema order, filtered to the visible set.
   const visibleColumns = useMemo(
     () => COLUMNS.filter((c) => visibleCols.has(c.key)),
     [visibleCols]
@@ -198,45 +218,88 @@ export default function LeadsPage() {
   // ---- Search + filter + sort ----------------------------------------------
   const visibleLeads = useMemo(() => {
     const q = search.trim().toLowerCase();
-
-    let rows = allLeads.filter((lead) => {
-      // AND across filters, OR within a single filter.
+    let rows = roleScoped.filter((lead) => {
       for (const key of Object.keys(EMPTY_FILTERS)) {
-        const selectedVals = filters[key];
-        if (selectedVals.length > 0 && !selectedVals.includes(lead[key])) {
-          return false;
-        }
+        const sel = filters[key];
+        if (sel.length > 0 && !sel.includes(lead[key])) return false;
       }
       if (!matchesDatePreset(lead.nextFollowUpDate, datePreset)) return false;
-
       if (q) {
-        const haystack = SEARCHABLE_KEYS.map((k) => lead[k])
+        const hay = SEARCHABLE_KEYS.map((k) => lead[k])
           .join(" ")
           .toLowerCase();
-        if (!haystack.includes(q)) return false;
+        if (!hay.includes(q)) return false;
       }
       return true;
     });
-
     if (sort.key) {
-      const column = COLUMNS.find((c) => c.key === sort.key);
-      rows = [...rows].sort((a, b) => compareLeads(a, b, column, sort.dir));
+      const col = COLUMN_BY_KEY[sort.key];
+      rows = [...rows].sort((a, b) => compareLeads(a, b, col, sort.dir));
     }
     return rows;
-  }, [allLeads, search, filters, datePreset, sort]);
+  }, [roleScoped, search, filters, datePreset, sort]);
+
+  // ---- Selection (BDM) -----------------------------------------------------
+  const allSelected =
+    visibleLeads.length > 0 &&
+    visibleLeads.every((l) => selectedIds.has(l.leadId));
+
+  function toggleSelect(id) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function toggleSelectAll() {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allSelected) visibleLeads.forEach((l) => next.delete(l.leadId));
+      else visibleLeads.forEach((l) => next.add(l.leadId));
+      return next;
+    });
+  }
+
+  // ---- Mutations -----------------------------------------------------------
+  function handleFieldChange(leadId, patch) {
+    setAllLeads((rows) =>
+      rows.map((l) => (l.leadId === leadId ? { ...l, ...patch } : l))
+    );
+    updateLead(leadId, patch).catch((e) => console.error(e));
+  }
+
+  function handleBulkAssign(dscId) {
+    const ids = [...selectedIds];
+    setAllLeads((rows) =>
+      rows.map((l) =>
+        selectedIds.has(l.leadId) ? { ...l, assignedDscId: dscId } : l
+      )
+    );
+    assignLeads(ids, dscId).catch((e) => console.error(e));
+    setSelectedIds(new Set());
+  }
+
+  function handleImported(newLeads) {
+    // Prepend so freshly imported (New, unassigned) leads are visible up top.
+    setAllLeads((rows) => [...newLeads, ...rows]);
+  }
 
   return (
     <div className="flex h-full flex-col">
       <Topbar
         title="Lead Table"
-        subtitle="All leads — search, filter, sort, and pick your columns"
+        subtitle={
+          isBDM ? "All leads across the team" : `${viewer?.name}'s leads`
+        }
+        right={<RoleSwitcher viewerId={viewerId} onChange={setViewerId} />}
       />
 
       <LeadToolbar
         search={search}
         onSearch={setSearch}
         count={visibleLeads.length}
-        total={allLeads.length}
+        total={roleScoped.length}
         filters={filters}
         onFilterChange={handleFilterChange}
         datePreset={datePreset}
@@ -245,7 +308,18 @@ export default function LeadsPage() {
         options={filterOptions}
         visibleColumns={visibleCols}
         onColumnsChange={setVisibleCols}
+        showDscFilter={isBDM}
+        canImport={isBDM}
+        onImport={() => setImportOpen(true)}
       />
+
+      {isBDM ? (
+        <BulkAssignBar
+          count={selectedIds.size}
+          onAssign={handleBulkAssign}
+          onClear={() => setSelectedIds(new Set())}
+        />
+      ) : null}
 
       <div className="flex-1 overflow-y-auto">
         {loading ? (
@@ -256,16 +330,37 @@ export default function LeadsPage() {
           <LeadTable
             leads={visibleLeads}
             columns={visibleColumns}
+            widths={widths}
+            onResize={handleResize}
             sortBy={sort.key}
             sortDir={sort.dir}
             onSort={handleSort}
-            onRowClick={setSelected}
-            selectedId={selected?.leadId}
+            selectable={isBDM}
+            selectedIds={selectedIds}
+            onToggleSelect={toggleSelect}
+            onToggleSelectAll={toggleSelectAll}
+            allSelected={allSelected}
+            expandedId={expandedId}
+            onToggleExpand={(id) =>
+              setExpandedId((cur) => (cur === id ? null : id))
+            }
+            renderExpanded={(lead) => (
+              <ExpandedLeadRow
+                lead={lead}
+                role={viewer?.role}
+                onChange={handleFieldChange}
+              />
+            )}
           />
         )}
       </div>
 
-      <LeadDetailPanel lead={selected} onClose={() => setSelected(null)} />
+      <ImportModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        existingLeads={allLeads}
+        onImported={handleImported}
+      />
     </div>
   );
 }
