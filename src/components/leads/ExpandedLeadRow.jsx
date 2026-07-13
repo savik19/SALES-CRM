@@ -1,6 +1,5 @@
 "use client";
 
-import { COLUMN_GROUPS } from "./columns";
 import {
   LEAD_STATUSES,
   PRIORITIES,
@@ -185,7 +184,7 @@ function Field({ column, lead, canEdit, canAssign, onChange }) {
 // Inline expanded view — every field for a lead, grouped, edited in place.
 // Editability follows the role: DSC edits their own leads' fields (but not the
 // assignee); BDM edits anything and is the only one who can (re)assign.
-export default function ExpandedLeadRow({ lead, role, onChange }) {
+export default function ExpandedLeadRow({ lead, role, onChange, groups }) {
   const canEdit = true; // a viewer only ever sees leads they may edit
   const canAssign = role === "bdm";
 
@@ -198,7 +197,7 @@ export default function ExpandedLeadRow({ lead, role, onChange }) {
         </span>
       </div>
       <div className="space-y-4">
-        {COLUMN_GROUPS.map((group) => (
+        {groups.map((group) => (
           <div key={group.name}>
             <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
               {group.name}

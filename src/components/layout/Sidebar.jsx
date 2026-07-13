@@ -11,6 +11,12 @@ const NAV = [
   { href: "/statuses", label: "Pipeline", icon: "🔀", soon: true },
   { href: "/analytics", label: "Analytics", icon: "📊", soon: true },
   { href: "/kpis", label: "KPIs", icon: "🎯", soon: true },
+  {
+    href: "/settings/columns",
+    label: "Column Mapping",
+    icon: "🧩",
+    soon: false,
+  },
 ];
 
 export default function Sidebar() {

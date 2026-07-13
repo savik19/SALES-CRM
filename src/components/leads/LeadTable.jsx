@@ -18,22 +18,33 @@ function SortArrow({ direction }) {
 }
 
 // Render one cell based on the column key. Long/among-many values truncate and
-// expand on click (ExpandableCell); the layout never breaks.
-function Cell({ column, lead }) {
+// expand on click (ExpandableCell); the layout never breaks. Company and Lead Id
+// are clickable and open the detail sidebar.
+function Cell({ column, lead, onOpenDetail }) {
   const key = column.key;
   const value = lead[key];
 
   switch (key) {
     case "company":
       return (
-        <ExpandableCell
-          text={lead.company}
-          className="font-medium text-slate-900"
-        />
+        <button
+          type="button"
+          title={lead.company}
+          onClick={() => onOpenDetail(lead)}
+          className="block w-full truncate text-left font-medium text-brand hover:underline"
+        >
+          {lead.company || "—"}
+        </button>
       );
     case "leadId":
       return (
-        <span className="font-mono text-xs text-slate-500">{lead.leadId}</span>
+        <button
+          type="button"
+          onClick={() => onOpenDetail(lead)}
+          className="font-mono text-xs text-slate-500 hover:text-brand hover:underline"
+        >
+          {lead.leadId}
+        </button>
       );
     case "leadStatus":
       return <StatusBadge status={lead.leadStatus} />;
@@ -122,6 +133,7 @@ export default function LeadTable({
   expandedId,
   onToggleExpand,
   renderExpanded,
+  onOpenDetail,
 }) {
   const totalCols = columns.length + 1 + (selectable ? 1 : 0);
 
@@ -231,7 +243,11 @@ export default function LeadTable({
                       key={col.key}
                       className="overflow-hidden px-4 py-3 align-top text-slate-700"
                     >
-                      <Cell column={col} lead={lead} />
+                      <Cell
+                        column={col}
+                        lead={lead}
+                        onOpenDetail={onOpenDetail}
+                      />
                     </td>
                   ))}
                 </tr>
