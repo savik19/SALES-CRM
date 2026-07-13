@@ -40,6 +40,22 @@
     Services rendered as chips; grouped detail slide-over.
   - `types.js` and `API_CONTRACT.md` updated to the new schema. Verified in a
     browser; lint/format/build green.
+- **2026-07-13** — Extended the Lead Table with the reordered 26-column schema
+  (Assigned DSC → col 18; identity → contact → location → status → dates → notes
+  → CRM-only), roles, and Excel import:
+  - **Column UX:** cells truncate with tooltip + click-to-expand, resizable
+    columns (drag borders), Services as chips (+N popover), row expand arrow →
+    inline editor for every field, column-picker (10 defaults + toggle rest).
+  - **Excel import (BDM):** upload `.xlsx` (17 sheet columns), header validation,
+    preview + dedupe (Phone / Email / Company+City), commit as New + unassigned,
+    and a summary (imported / skipped-dupe / failed). Uses `read-excel-file`;
+    pure logic in `src/lib/leadImport.js`.
+  - **Roles (§4):** BDM sees all + imports + (bulk-)assigns + edits any field;
+    DSC sees only their own leads (others/unassigned hidden), edits their own
+    fields, cannot assign/import. Demo role switcher; `assignedDscId` holds one
+    DSC, BDM-set. Bulk-assign via checkboxes.
+  - Filters gained an "Unassigned" DSC option. ~30 mock leads (unassigned News,
+    4 DSCs, blanks, Won/Lost amounts, a 4-service row). Verified in a browser.
 
 ---
 
@@ -115,38 +131,42 @@ Full field-by-field contract: [`docs/API_CONTRACT.md`](./API_CONTRACT.md) and
 left-to-right order (identity → contact → location → status → ownership →
 commercial → dates → notes) — 10 shown by default, the rest via a column-picker:
 
-| #   | Column              | Type          | Default |
-| --- | ------------------- | ------------- | ------- |
-| 1   | Lead Id             | text          | Yes     |
-| 2   | Company             | text          | Yes     |
-| 3   | Industry            | single-select | Yes     |
-| 4   | Contact Person      | text          | Yes     |
-| 5   | Role / Title        | text          | No      |
-| 6   | Phone               | text (multi)  | Yes     |
-| 7   | Email               | text (multi)  | No      |
-| 8   | City                | text          | Yes     |
-| 9   | Country             | text (India)  | No      |
-| 10  | Website             | url           | No      |
-| 11  | LinkedIn URL        | url           | No      |
-| 12  | Lead Source         | single-select | No      |
-| 13  | Lead Status         | single-select | Yes     |
-| 14  | Priority            | single-select | Yes     |
-| 15  | Assigned DSC        | user ref      | Yes     |
-| 16  | Attempt Count       | number        | No      |
-| 17  | Services Pitched    | multi-select  | No      |
-| 18  | Services Interested | multi-select  | No      |
-| 19  | Services Onboarded  | multi-select  | No      |
-| 20  | Quoted Amount       | number (Rs.)  | No      |
-| 21  | Closed Amount       | number (Rs.)  | No      |
-| 22  | Discount %          | computed      | No      |
-| 23  | Lost Reason         | single-select | No      |
-| 24  | Last Contact Date   | date          | No      |
-| 25  | Next Follow-up Date | date          | Yes     |
-| 26  | Notes               | long text     | No      |
+| #   | Column              | Type          | In import sheet? | Default |
+| --- | ------------------- | ------------- | ---------------- | ------- |
+| 1   | Lead Id             | text          | Yes              | Yes     |
+| 2   | Company             | text          | Yes              | Yes     |
+| 3   | Industry            | single-select | Yes              | Yes     |
+| 4   | Contact Person      | text          | Yes              | Yes     |
+| 5   | Role / Title        | text          | Yes              | No      |
+| 6   | Phone               | text (multi)  | Yes              | Yes     |
+| 7   | Email               | text (multi)  | Yes              | No      |
+| 8   | City                | text          | Yes              | Yes     |
+| 9   | Country             | text (India)  | Yes              | No      |
+| 10  | Website             | url           | Yes              | No      |
+| 11  | LinkedIn URL        | url           | Yes              | No      |
+| 12  | Lead Source         | single-select | Yes              | No      |
+| 13  | Lead Status         | single-select | Yes              | Yes     |
+| 14  | Priority            | single-select | Yes              | Yes     |
+| 15  | Last Contact Date   | date          | Yes              | No      |
+| 16  | Next Follow-up Date | date          | Yes              | Yes     |
+| 17  | Notes               | long text     | Yes              | No      |
+| 18  | Assigned DSC        | single-select | No — CRM only    | Yes     |
+| 19  | Attempt Count       | number        | No — CRM only    | No      |
+| 20  | Services Pitched    | multi-select  | No — CRM only    | No      |
+| 21  | Services Interested | multi-select  | No — CRM only    | No      |
+| 22  | Services Onboarded  | multi-select  | No — CRM only    | No      |
+| 23  | Quoted Amount       | number (Rs.)  | No — CRM only    | No      |
+| 24  | Closed Amount       | number (Rs.)  | No — CRM only    | No      |
+| 25  | Discount %          | computed      | No — CRM only    | No      |
+| 26  | Lost Reason         | single-select | No — CRM only    | No      |
 
+- **Import sheet** = columns 1–17 only (the scraped `.xlsx`). Columns 18–26 are
+  CRM-only, filled in by the team after import.
 - **Phone** stays text (may hold multiple comma-separated numbers) — never a number type.
 - **Discount %** = `(Quoted − Closed) / Quoted × 100`, computed on the fly, never stored.
-- **Services** columns render as chips (first two + "+N").
+- **Services** columns render as chips (first two + "+N"). Long/among-many cells
+  truncate with a tooltip and expand on click; columns are resizable; a row's
+  expand arrow opens an inline editor for every field.
 
 ---
 

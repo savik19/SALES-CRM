@@ -10,16 +10,20 @@ Legend: ✅ done · 🔜 next · ⬜ not started
 
 ### ✅ 1. Lead Table
 
-The core screen listing all leads (full 26-column schema).
+The core screen listing all leads (full 26-column schema) with import + roles.
 
-- 26 columns in fixed schema order; 10 shown by default with a column-picker to
-  toggle the rest. Every column sortable (text/number/date/pipeline-order/etc.).
-- Global search (company, contact, email, phone, lead id, city, notes).
-- Six multi-select filters + follow-up date presets (Today/Overdue/This Week),
-  combining AND across filters / OR within, with removable chips + clear-all.
-- Multi-select Services rendered as chips (+N overflow); computed Discount %;
-  colour-coded Status/Priority badges; row click → grouped detail slide-over.
-- **Files:** `src/app/leads/`, `src/components/leads/`, `src/data/mockLeads.js`.
+- 26 columns in fixed schema order; 10 shown by default + a column-picker;
+  resizable columns; cells truncate with tooltip + click-to-expand; Services as
+  chips (+N popover); row expand arrow → inline editor for every field.
+- Every column sortable (text/number/date/pipeline-order/etc.); global search;
+  six multi-select filters (DSC incl. "Unassigned") + follow-up date presets;
+  removable chips + clear-all.
+- **Excel import (BDM):** upload `.xlsx` → header validation → preview + dedupe →
+  commit as New/unassigned → summary. `src/lib/leadImport.js` + `read-excel-file`.
+- **Roles (§4):** BDM sees all + imports + bulk-assigns + edits; DSC sees only
+  their own leads and can't assign/import. Demo role switcher.
+- **Files:** `src/app/leads/`, `src/components/leads/`, `src/lib/leadImport.js`,
+  `src/data/mockLeads.js`.
 
 ### 🔜 2. Statuses — Pipeline / Kanban
 

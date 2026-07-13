@@ -74,6 +74,7 @@ or an `Authorization` header.
   "id": "u-anaya", // string, primary key (assignedDscId points here)
   "name": "Anaya Rao",
   "initials": "AR",
+  "role": "dsc", // "dsc" | "bdm"
 }
 ```
 
@@ -115,10 +116,40 @@ SaaS Subscription, Website Development, Digital Marketing, AI Tools, Mobile App,
 
 ### `PATCH /api/leads/:id`
 
-Body: a partial `Lead` (only changed fields), e.g. `{ "leadStatus": "Won" }`.
-**200** → the full updated `Lead`.
+Body: a partial `Lead` (only changed fields), e.g. `{ "leadStatus": "Won" }` or
+`{ "assignedDscId": "u-kabir" }`. **200** → the full updated `Lead`.
+
+### `POST /api/leads/assign` (BDM only)
+
+Bulk-assign leads to one DSC. Body `{ "leadIds": string[], "dscId": string }`.
+**200** → `{ "updated": string[] }`. Enforce BDM-only server-side.
+
+### `POST /api/leads/import` (BDM only)
+
+Commit imported rows. Body `{ "rows": Lead[] }`. Each row must arrive as
+`leadStatus: "New"` and `assignedDscId: ""`. **200** → `{ "imported": number }`.
 
 ---
+
+## Roles & scoping (Build Brief §4)
+
+- **BDM** — sees all leads; can import, assign/reassign, bulk-assign, edit any field.
+- **DSC** — sees ONLY their own leads (others + unassigned are hidden, not greyed);
+  can edit their own leads' fields and status; **cannot** assign/reassign or import.
+
+`assignedDscId` holds exactly one DSC id (or `""` for unassigned) and is set only
+by the BDM. The frontend has a demo role switcher; real auth (`GET /api/me`) makes
+the backend the source of truth for the role and the lead scoping.
+
+## Excel import sheet
+
+The scraped `.xlsx` contains exactly the **17 import-sheet columns** (marked in
+`src/components/leads/columns.js` via `inImportSheet`, exposed as
+`IMPORT_SHEET_HEADERS`): Lead Id, Company, Industry, Contact Person, Role / Title,
+Phone, Email, City, Country, Website, LinkedIn URL, Lead Source, Lead Status,
+Priority, Last Contact Date, Next Follow-up Date, Notes. Columns 18–26 are
+CRM-only and filled in later. Duplicate detection matches on Phone OR Email OR
+(Company + City).
 
 ## Endpoints to add as those screens are built
 

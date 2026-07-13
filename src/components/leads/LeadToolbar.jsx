@@ -11,9 +11,9 @@ export const DATE_PRESETS = [
   { key: "week", label: "This Week" },
 ];
 
-// The six multi-select filters, in display order. `key` matches a lead field
+// The multi-select filters, in display order. `key` matches a lead field
 // (except assignedDscId which stores an id but shows a name).
-const FILTER_DEFS = [
+const ALL_FILTER_DEFS = [
   { key: "leadStatus", label: "Status" },
   { key: "priority", label: "Priority" },
   { key: "industry", label: "Industry" },
@@ -22,13 +22,12 @@ const FILTER_DEFS = [
   { key: "leadSource", label: "Source" },
 ];
 
-// Human label for a chip value (DSC ids resolve to names).
 function chipValueLabel(filterKey, value) {
   return filterKey === "assignedDscId" ? dscName(value) : value;
 }
 
-// Everything above the table: search + result count, the filter bar, active
-// filter chips, and the column picker. Fully controlled by the page.
+// Everything above the table: search + result count, import (BDM), the filter
+// bar, active filter chips, and the column picker. Fully controlled.
 export default function LeadToolbar({
   search,
   onSearch,
@@ -42,9 +41,16 @@ export default function LeadToolbar({
   options,
   visibleColumns,
   onColumnsChange,
+  showDscFilter = true,
+  canImport = false,
+  onImport,
 }) {
+  const filterDefs = showDscFilter
+    ? ALL_FILTER_DEFS
+    : ALL_FILTER_DEFS.filter((d) => d.key !== "assignedDscId");
+
   const activeChips = [];
-  for (const def of FILTER_DEFS) {
+  for (const def of filterDefs) {
     for (const value of filters[def.key]) {
       activeChips.push({
         filterKey: def.key,
@@ -63,21 +69,17 @@ export default function LeadToolbar({
   }
 
   function removeChip(chip) {
-    if (chip.filterKey === "__date") {
-      onDatePreset("");
-    } else {
+    if (chip.filterKey === "__date") onDatePreset("");
+    else
       onFilterChange(
         chip.filterKey,
         filters[chip.filterKey].filter((v) => v !== chip.value)
       );
-    }
   }
-
-  const hasActive = activeChips.length > 0;
 
   return (
     <div className="border-b border-slate-200 bg-white">
-      {/* Search + column picker row */}
+      {/* Search + import + column picker row */}
       <div className="flex flex-col gap-3 px-6 pt-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative w-full sm:max-w-md">
           <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
@@ -108,13 +110,22 @@ export default function LeadToolbar({
             <span className="font-semibold text-slate-700">{count}</span> of{" "}
             {total} leads
           </span>
+          {canImport ? (
+            <button
+              type="button"
+              onClick={onImport}
+              className="whitespace-nowrap rounded-lg bg-brand px-3 py-2 text-sm font-medium text-white hover:bg-brand-700"
+            >
+              ⬆ Import Excel
+            </button>
+          ) : null}
           <ColumnPicker visible={visibleColumns} onChange={onColumnsChange} />
         </div>
       </div>
 
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-2 px-6 py-3">
-        {FILTER_DEFS.map((def) => (
+        {filterDefs.map((def) => (
           <MultiSelectDropdown
             key={def.key}
             label={def.label}
@@ -124,7 +135,6 @@ export default function LeadToolbar({
           />
         ))}
 
-        {/* Follow-up date presets */}
         <div className="ml-1 inline-flex overflow-hidden rounded-lg border border-slate-300">
           {DATE_PRESETS.map((p) => (
             <button
@@ -144,7 +154,7 @@ export default function LeadToolbar({
       </div>
 
       {/* Active filter chips */}
-      {hasActive ? (
+      {activeChips.length ? (
         <div className="flex flex-wrap items-center gap-2 px-6 pb-3">
           {activeChips.map((chip) => (
             <span
