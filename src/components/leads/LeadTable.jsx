@@ -1,31 +1,101 @@
 "use client";
 
-import LeadStatusBadge from "./LeadStatusBadge";
-import { dscName } from "@/data/users";
-import { formatDate, orDash, isFollowUpDue } from "@/lib/format";
-
-// Columns rendered in the table. `sortKey` marks a column as sortable and names
-// the lead field it sorts on. The full field set lives in the detail panel.
-const COLUMNS = [
-  { key: "company", label: "Company", sortKey: "company" },
-  { key: "industry", label: "Industry", sortKey: "industry" },
-  { key: "contactPerson", label: "Contact", sortKey: "contactPerson" },
-  { key: "location", label: "Location", sortKey: "location" },
-  { key: "status", label: "Status", sortKey: "status" },
-  { key: "budget", label: "Budget", sortKey: "budget" },
-  { key: "assignedDscId", label: "Assigned DSC", sortKey: "assignedDscId" },
-  { key: "nextFollowUp", label: "Next Follow-up", sortKey: "nextFollowUp" },
-];
+import { StatusBadge, PriorityBadge } from "./LeadStatusBadge";
+import ServiceChips from "./ServiceChips";
+import { dscName } from "@/data/mockLeads";
+import {
+  formatDate,
+  formatINR,
+  orDash,
+  discountPctLabel,
+  isOnOrBefore,
+} from "@/lib/format";
 
 function SortArrow({ direction }) {
   if (!direction) return <span className="text-slate-300">↕</span>;
   return <span className="text-brand">{direction === "asc" ? "↑" : "↓"}</span>;
 }
 
-// Presentational table — it does NOT fetch. Parent passes `leads` plus sort
-// state + handlers, mapping cleanly onto a future GET /api/leads response.
+// Render one cell based on the column key. Presentational only.
+function Cell({ column, lead }) {
+  const key = column.key;
+  const value = lead[key];
+
+  switch (key) {
+    case "company":
+      return <span className="font-medium text-slate-900">{lead.company}</span>;
+    case "leadId":
+      return (
+        <span className="font-mono text-xs text-slate-500">{lead.leadId}</span>
+      );
+    case "leadStatus":
+      return <StatusBadge status={lead.leadStatus} />;
+    case "priority":
+      return <PriorityBadge priority={lead.priority} />;
+    case "assignedDscId":
+      return (
+        <span className="whitespace-nowrap">{dscName(lead.assignedDscId)}</span>
+      );
+    case "servicesPitched":
+    case "servicesInterested":
+    case "servicesOnboarded":
+      return <ServiceChips values={value} />;
+    case "quotedAmount":
+    case "closedAmount":
+      return (
+        <span className="whitespace-nowrap tabular-nums">
+          {formatINR(value)}
+        </span>
+      );
+    case "discountPct":
+      return <span className="tabular-nums">{discountPctLabel(lead)}</span>;
+    case "attemptCount":
+      return <span className="tabular-nums">{value ?? 0}</span>;
+    case "lastContactDate":
+      return <span className="whitespace-nowrap">{formatDate(value)}</span>;
+    case "nextFollowUpDate": {
+      const overdue = isOnOrBefore(value);
+      return (
+        <span
+          className={`whitespace-nowrap ${overdue ? "font-medium text-red-600" : ""}`}
+          title={overdue ? "Follow-up due" : undefined}
+        >
+          {formatDate(value)}
+          {overdue ? " •" : ""}
+        </span>
+      );
+    }
+    case "website":
+    case "linkedinUrl": {
+      if (!value) return <span className="text-slate-400">—</span>;
+      return (
+        <a
+          href={value}
+          target="_blank"
+          rel="noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="text-brand hover:underline"
+        >
+          {value.replace(/^https?:\/\//, "")}
+        </a>
+      );
+    }
+    case "notes":
+      return (
+        <span className="block max-w-xs truncate text-slate-600" title={value}>
+          {orDash(value)}
+        </span>
+      );
+    default:
+      return <span className="text-slate-600">{orDash(value)}</span>;
+  }
+}
+
+// Presentational table — does NOT fetch or filter. Parent passes the already
+// filtered + sorted `leads`, the ordered `columns` to show, and sort handlers.
 export default function LeadTable({
   leads,
+  columns,
   sortBy,
   sortDir,
   onSort,
@@ -51,82 +121,43 @@ export default function LeadTable({
       <table className="min-w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-slate-200 bg-slate-50 text-left">
-            {COLUMNS.map((col) => (
+            {columns.map((col) => (
               <th
                 key={col.key}
                 scope="col"
                 className="whitespace-nowrap px-4 py-3 font-semibold text-slate-600"
               >
-                {col.sortKey ? (
-                  <button
-                    type="button"
-                    onClick={() => onSort(col.sortKey)}
-                    className="inline-flex items-center gap-1 hover:text-slate-900"
-                  >
-                    {col.label}
-                    <SortArrow
-                      direction={sortBy === col.sortKey ? sortDir : null}
-                    />
-                  </button>
-                ) : (
-                  col.label
-                )}
+                <button
+                  type="button"
+                  onClick={() => onSort(col.key)}
+                  className="inline-flex items-center gap-1 hover:text-slate-900"
+                >
+                  {col.label}
+                  <SortArrow direction={sortBy === col.key ? sortDir : null} />
+                </button>
               </th>
             ))}
           </tr>
         </thead>
         <tbody>
           {leads.map((lead) => {
-            const due = isFollowUpDue(lead.nextFollowUp);
-            const selected = lead.id === selectedId;
+            const selected = lead.leadId === selectedId;
             return (
               <tr
-                key={lead.id}
+                key={lead.leadId}
                 onClick={() => onRowClick(lead)}
                 className={`cursor-pointer border-b border-slate-100 transition-colors ${
                   selected ? "bg-brand-50" : "hover:bg-slate-50"
                 }`}
               >
-                <td className="px-4 py-3">
-                  <div className="font-medium text-slate-900">
-                    {lead.company}
-                  </div>
-                  <div className="text-xs text-slate-400">{lead.id}</div>
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 text-slate-600">
-                  {orDash(lead.industry)}
-                </td>
-                <td className="px-4 py-3 text-slate-600">
-                  <div>{orDash(lead.contactPerson)}</div>
-                  {lead.designation ? (
-                    <div className="text-xs text-slate-400">
-                      {lead.designation}
-                    </div>
-                  ) : null}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 text-slate-600">
-                  {orDash(lead.location)}
-                </td>
-                <td className="px-4 py-3">
-                  <LeadStatusBadge statusKey={lead.status} />
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 text-slate-600">
-                  {orDash(lead.budget)}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 text-slate-600">
-                  {dscName(lead.assignedDscId)}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3">
-                  <span
-                    className={
-                      due ? "font-medium text-red-600" : "text-slate-600"
-                    }
-                    title={due ? "Follow-up due" : undefined}
+                {columns.map((col) => (
+                  <td
+                    key={col.key}
+                    className="px-4 py-3 align-top text-slate-700"
                   >
-                    {formatDate(lead.nextFollowUp)}
-                    {due ? " •" : ""}
-                  </span>
-                </td>
+                    <Cell column={col} lead={lead} />
+                  </td>
+                ))}
               </tr>
             );
           })}

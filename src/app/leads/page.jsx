@@ -2,59 +2,139 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Topbar from "@/components/layout/Topbar";
-import LeadFilters from "@/components/leads/LeadFilters";
+import LeadToolbar from "@/components/leads/LeadToolbar";
 import LeadTable from "@/components/leads/LeadTable";
 import LeadDetailPanel from "@/components/leads/LeadDetailPanel";
-import { getLeads, updateLead } from "@/lib/leadsApi";
-import { TEAM, USER_BY_ID, dscName } from "@/data/users";
-import { STATUS_ORDER } from "@/data/statuses";
+import {
+  COLUMNS,
+  DEFAULT_VISIBLE_KEYS,
+  SEARCHABLE_KEYS,
+} from "@/components/leads/columns";
+import { getLeads } from "@/lib/leadsApi";
+import { discountPct } from "@/lib/format";
+import {
+  LEAD_STATUSES,
+  PRIORITIES,
+  INDUSTRIES,
+  LEAD_SOURCES,
+  DSCS,
+  dscName,
+} from "@/data/mockLeads";
 
-// Fields whose values are dates/enums and need custom comparison.
-function compareLeads(a, b, key, dir) {
+// The six multi-select filters start empty.
+const EMPTY_FILTERS = {
+  leadStatus: [],
+  priority: [],
+  industry: [],
+  city: [],
+  assignedDscId: [],
+  leadSource: [],
+};
+
+// ---- Sorting ---------------------------------------------------------------
+// Compare two leads on a column, honouring the column's sortType.
+function compareLeads(a, b, column, dir) {
   const factor = dir === "asc" ? 1 : -1;
-  let av = a[key];
-  let bv = b[key];
+  const key = column.key;
 
-  if (key === "status") {
-    // Sort by pipeline order, not alphabetically.
-    av = STATUS_ORDER.indexOf(a.status);
-    bv = STATUS_ORDER.indexOf(b.status);
-    return (av - bv) * factor;
+  switch (column.sortType) {
+    case "status": {
+      return (
+        (LEAD_STATUSES.indexOf(a.leadStatus) -
+          LEAD_STATUSES.indexOf(b.leadStatus)) *
+        factor
+      );
+    }
+    case "priority": {
+      return (
+        (PRIORITIES.indexOf(a.priority) - PRIORITIES.indexOf(b.priority)) *
+        factor
+      );
+    }
+    case "dsc": {
+      return (
+        dscName(a.assignedDscId).localeCompare(dscName(b.assignedDscId)) *
+        factor
+      );
+    }
+    case "services": {
+      // By count, then by the joined names.
+      const av = a[key] || [];
+      const bv = b[key] || [];
+      if (av.length !== bv.length) return (av.length - bv.length) * factor;
+      return av.join(",").localeCompare(bv.join(",")) * factor;
+    }
+    case "number": {
+      return compareNumbers(a[key], b[key], factor);
+    }
+    case "discount": {
+      return compareNumbers(discountPct(a), discountPct(b), factor);
+    }
+    case "date": {
+      // Empty dates sort to the bottom regardless of direction.
+      const av = a[key];
+      const bv = b[key];
+      if (!av && !bv) return 0;
+      if (!av) return 1;
+      if (!bv) return -1;
+      return (av < bv ? -1 : av > bv ? 1 : 0) * factor;
+    }
+    default: {
+      // text
+      const av = (a[key] ?? "").toString().toLowerCase();
+      const bv = (b[key] ?? "").toString().toLowerCase();
+      if (av === bv) return 0;
+      // Blanks sort to the bottom.
+      if (!av) return 1;
+      if (!bv) return -1;
+      return av < bv ? -1 * factor : 1 * factor;
+    }
   }
-  if (key === "assignedDscId") {
-    av = dscName(a.assignedDscId);
-    bv = dscName(b.assignedDscId);
-  }
-  if (key === "nextFollowUp") {
-    // Empty dates sort to the bottom regardless of direction.
-    if (!av && !bv) return 0;
-    if (!av) return 1;
-    if (!bv) return -1;
-    return (av < bv ? -1 : av > bv ? 1 : 0) * factor;
-  }
+}
 
-  av = (av ?? "").toString().toLowerCase();
-  bv = (bv ?? "").toString().toLowerCase();
-  if (av < bv) return -1 * factor;
-  if (av > bv) return 1 * factor;
-  return 0;
+// Numeric compare with null/empty values pushed to the bottom.
+function compareNumbers(a, b, factor) {
+  const an = a === null || a === undefined || a === "" ? null : Number(a);
+  const bn = b === null || b === undefined || b === "" ? null : Number(b);
+  if (an === null && bn === null) return 0;
+  if (an === null) return 1;
+  if (bn === null) return -1;
+  return (an - bn) * factor;
+}
+
+// ---- Date-range presets on Next Follow-up Date -----------------------------
+function matchesDatePreset(iso, preset) {
+  if (!preset) return true;
+  if (!iso) return false;
+  const d = new Date(iso + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return false;
+
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+
+  if (preset === "today") return d.getTime() === start.getTime();
+  if (preset === "overdue") return d.getTime() < start.getTime();
+  if (preset === "week") {
+    // Current calendar week, Monday–Sunday.
+    const dow = (start.getDay() + 6) % 7; // 0 = Monday
+    const weekStart = new Date(start);
+    weekStart.setDate(start.getDate() - dow);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6);
+    weekEnd.setHours(23, 59, 59, 999);
+    return d >= weekStart && d <= weekEnd;
+  }
+  return true;
 }
 
 export default function LeadsPage() {
-  // ---- "Viewing as" (previews role scoping from Brief §4) --------------------
-  // Default to the BDM so the whole team's leads show. Switch to a DSC to see
-  // the "only my leads" experience. The real app derives this from auth.
-  const [viewerId, setViewerId] = useState("u-prakhar");
-  const viewer = USER_BY_ID[viewerId];
-
-  // ---- Data -----------------------------------------------------------------
+  // ---- Data ----------------------------------------------------------------
   const [allLeads, setAllLeads] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
-    getLeads({ currentUser: viewer }).then((rows) => {
+    getLeads().then((rows) => {
       if (active) {
         setAllLeads(rows);
         setLoading(false);
@@ -63,101 +143,108 @@ export default function LeadsPage() {
     return () => {
       active = false;
     };
-  }, [viewer]);
+  }, []);
 
-  // ---- Table controls -------------------------------------------------------
+  // ---- Controls ------------------------------------------------------------
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [dscFilter, setDscFilter] = useState("all");
-  const [sortBy, setSortBy] = useState("company");
-  const [sortDir, setSortDir] = useState("asc");
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [datePreset, setDatePreset] = useState("");
+  const [sort, setSort] = useState({ key: null, dir: null }); // off by default
+  const [visibleCols, setVisibleCols] = useState(
+    () => new Set(DEFAULT_VISIBLE_KEYS)
+  );
   const [selected, setSelected] = useState(null);
 
-  function handleSort(key) {
-    if (sortBy === key) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortBy(key);
-      setSortDir("asc");
-    }
+  function handleFilterChange(key, values) {
+    setFilters((f) => ({ ...f, [key]: values }));
   }
 
-  // ---- Derived: search + filter + sort --------------------------------------
+  function clearAllFilters() {
+    setFilters(EMPTY_FILTERS);
+    setDatePreset("");
+  }
+
+  // Sort cycle per column: asc → desc → off.
+  function handleSort(key) {
+    setSort((s) => {
+      if (s.key !== key) return { key, dir: "asc" };
+      if (s.dir === "asc") return { key, dir: "desc" };
+      return { key: null, dir: null };
+    });
+  }
+
+  // City options are derived from the data (unique, sorted).
+  const cityOptions = useMemo(
+    () =>
+      Array.from(new Set(allLeads.map((l) => l.city).filter(Boolean))).sort(),
+    [allLeads]
+  );
+
+  const filterOptions = {
+    leadStatus: LEAD_STATUSES,
+    priority: PRIORITIES,
+    industry: INDUSTRIES,
+    city: cityOptions,
+    assignedDscId: DSCS.map((d) => ({ value: d.id, label: d.name })),
+    leadSource: LEAD_SOURCES,
+  };
+
+  // Columns to render, in schema order, filtered to the visible set.
+  const visibleColumns = useMemo(
+    () => COLUMNS.filter((c) => visibleCols.has(c.key)),
+    [visibleCols]
+  );
+
+  // ---- Search + filter + sort ----------------------------------------------
   const visibleLeads = useMemo(() => {
     const q = search.trim().toLowerCase();
+
     let rows = allLeads.filter((lead) => {
-      if (statusFilter !== "all" && lead.status !== statusFilter) return false;
-      if (dscFilter !== "all" && lead.assignedDscId !== dscFilter) return false;
-      if (!q) return true;
-      const haystack = [
-        lead.company,
-        lead.industry,
-        lead.contactPerson,
-        lead.location,
-        lead.email,
-        lead.phone,
-      ]
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(q);
+      // AND across filters, OR within a single filter.
+      for (const key of Object.keys(EMPTY_FILTERS)) {
+        const selectedVals = filters[key];
+        if (selectedVals.length > 0 && !selectedVals.includes(lead[key])) {
+          return false;
+        }
+      }
+      if (!matchesDatePreset(lead.nextFollowUpDate, datePreset)) return false;
+
+      if (q) {
+        const haystack = SEARCHABLE_KEYS.map((k) => lead[k])
+          .join(" ")
+          .toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
     });
-    rows = [...rows].sort((a, b) => compareLeads(a, b, sortBy, sortDir));
-    return rows;
-  }, [allLeads, search, statusFilter, dscFilter, sortBy, sortDir]);
 
-  // ---- Status change (optimistic; persists once API is wired) ---------------
-  async function handleChangeStatus(id, nextStatus) {
-    setAllLeads((rows) =>
-      rows.map((l) => (l.id === id ? { ...l, status: nextStatus } : l))
-    );
-    setSelected((s) => (s && s.id === id ? { ...s, status: nextStatus } : s));
-    // Fire the (mock) persistence call. Real API makes this durable.
-    try {
-      await updateLead(id, { status: nextStatus });
-    } catch (err) {
-      // TODO(backend): surface a toast + revert on failure.
-      console.error(err);
+    if (sort.key) {
+      const column = COLUMNS.find((c) => c.key === sort.key);
+      rows = [...rows].sort((a, b) => compareLeads(a, b, column, sort.dir));
     }
-  }
-
-  const isDscViewer = viewer?.role === "dsc";
+    return rows;
+  }, [allLeads, search, filters, datePreset, sort]);
 
   return (
     <div className="flex h-full flex-col">
       <Topbar
         title="Lead Table"
-        subtitle={isDscViewer ? "Your leads only" : "All leads across the team"}
-        right={
-          <label className="flex items-center gap-2 text-sm text-slate-600">
-            <span className="hidden sm:inline">Viewing as</span>
-            <select
-              value={viewerId}
-              onChange={(e) => {
-                setViewerId(e.target.value);
-                setDscFilter("all");
-              }}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
-            >
-              {TEAM.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name} · {u.role.toUpperCase()}
-                </option>
-              ))}
-            </select>
-          </label>
-        }
+        subtitle="All leads — search, filter, sort, and pick your columns"
       />
 
-      <LeadFilters
+      <LeadToolbar
         search={search}
         onSearch={setSearch}
-        status={statusFilter}
-        onStatus={setStatusFilter}
-        dsc={dscFilter}
-        onDsc={setDscFilter}
-        showDscFilter={!isDscViewer}
         count={visibleLeads.length}
         total={allLeads.length}
+        filters={filters}
+        onFilterChange={handleFilterChange}
+        datePreset={datePreset}
+        onDatePreset={setDatePreset}
+        onClearAll={clearAllFilters}
+        options={filterOptions}
+        visibleColumns={visibleCols}
+        onColumnsChange={setVisibleCols}
       />
 
       <div className="flex-1 overflow-y-auto">
@@ -168,20 +255,17 @@ export default function LeadsPage() {
         ) : (
           <LeadTable
             leads={visibleLeads}
-            sortBy={sortBy}
-            sortDir={sortDir}
+            columns={visibleColumns}
+            sortBy={sort.key}
+            sortDir={sort.dir}
             onSort={handleSort}
             onRowClick={setSelected}
-            selectedId={selected?.id}
+            selectedId={selected?.leadId}
           />
         )}
       </div>
 
-      <LeadDetailPanel
-        lead={selected}
-        onClose={() => setSelected(null)}
-        onChangeStatus={handleChangeStatus}
-      />
+      <LeadDetailPanel lead={selected} onClose={() => setSelected(null)} />
     </div>
   );
 }
