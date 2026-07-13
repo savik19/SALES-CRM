@@ -1,20 +1,24 @@
-import { STATUS_BY_KEY } from "@/data/statuses";
+import { statusBadgeClass, priorityBadgeClass } from "./statusStyles";
 
-// Colour-coded status pill. Colours are defined once in src/data/statuses.js.
-export default function LeadStatusBadge({ statusKey }) {
-  const status = STATUS_BY_KEY[statusKey];
-  if (!status) {
-    return (
-      <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
-        Unknown
-      </span>
-    );
-  }
+const base =
+  "inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium";
+
+// Colour-coded Lead Status pill.
+export function StatusBadge({ status }) {
+  if (!status) return <span className="text-slate-400">—</span>;
   return (
-    <span
-      className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium ${status.badge}`}
-    >
-      {status.label}
+    <span className={`${base} ${statusBadgeClass(status)}`}>{status}</span>
+  );
+}
+
+// Colour-coded Priority pill.
+export function PriorityBadge({ priority }) {
+  if (!priority) return <span className="text-slate-400">—</span>;
+  return (
+    <span className={`${base} ${priorityBadgeClass(priority)}`}>
+      {priority}
     </span>
   );
 }
+
+export default StatusBadge;

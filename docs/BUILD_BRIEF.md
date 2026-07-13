@@ -29,6 +29,17 @@
     `CONTRIBUTING.md`; README turned into an index.
   - Added tooling (ESLint + Prettier + EditorConfig + `.nvmrc`) and GitHub
     scaffolding (PR/issue templates, CI running lint + format + build).
+- **2026-07-13** — Rebuilt the Lead Table onto the full **26-column schema**
+  (see §5 below, which is now the richer master schema — Lead Id → Notes):
+  - Single mock-data file `src/data/mockLeads.js` holds all option lists
+    (17 statuses, 4 priorities, 7 sources, 14 industries, 7 lost reasons,
+    7 services), the DSCs, and ~20 leads. `statuses.js`/`users.js` folded in.
+  - 10 default columns + a column-picker for the other 16; per-type sorting
+    (status by pipeline order); global search; six multi-select filters + a
+    follow-up date-range preset; active-filter chips; computed Discount %;
+    Services rendered as chips; grouped detail slide-over.
+  - `types.js` and `API_CONTRACT.md` updated to the new schema. Verified in a
+    browser; lint/format/build green.
 
 ---
 
@@ -96,46 +107,63 @@ passing them in as data, not constants.)
 
 ---
 
-## 5. Lead Table — column schema (from the real master sheet)
+## 5. Lead Table — column schema (26-column master schema)
 
-| Field               | Type      | Notes                                                            |
-| ------------------- | --------- | ---------------------------------------------------------------- |
-| Company             | text      | Prospect company name                                            |
-| Industry            | text      | e.g. Real Estate, Manufacturing, Dermatologist, Dental, Pet Shop |
-| Website             | url       | May be empty / "N/A"                                             |
-| Contact Person      | text      | May be empty                                                     |
-| Designation         | text      | e.g. Owner, Operational Manager, Director                        |
-| Phone Number        | text      | Keep as text (formatting varies)                                 |
-| Email               | text      | Often missing ("-")                                              |
-| Location            | text      | City                                                             |
-| Status              | enum      | See §6                                                           |
-| Budget              | text      | Messy in source ("200K", "30K", "Yet to confirm") — text for now |
-| Remarks             | long text | Free-form notes / follow-up context                              |
-| Last Follow-up Date | date      | "Last FUP Date" in the sheet                                     |
-| Next Follow-up Date | date      | "Next FUP Date" in the sheet                                     |
+Full field-by-field contract: [`docs/API_CONTRACT.md`](./API_CONTRACT.md) and
+[`src/lib/types.js`](../src/lib/types.js). Option lists (exact values + order):
+[`src/data/mockLeads.js`](../src/data/mockLeads.js). Columns, in fixed
+left-to-right order (identity → contact → location → status → ownership →
+commercial → dates → notes) — 10 shown by default, the rest via a column-picker:
 
-**Fields the CRM needs that the sheet does NOT have (add these):**
+| #   | Column              | Type          | Default |
+| --- | ------------------- | ------------- | ------- |
+| 1   | Lead Id             | text          | Yes     |
+| 2   | Company             | text          | Yes     |
+| 3   | Industry            | single-select | Yes     |
+| 4   | Contact Person      | text          | Yes     |
+| 5   | Role / Title        | text          | No      |
+| 6   | Phone               | text (multi)  | Yes     |
+| 7   | Email               | text (multi)  | No      |
+| 8   | City                | text          | Yes     |
+| 9   | Country             | text (India)  | No      |
+| 10  | Website             | url           | No      |
+| 11  | LinkedIn URL        | url           | No      |
+| 12  | Lead Source         | single-select | No      |
+| 13  | Lead Status         | single-select | Yes     |
+| 14  | Priority            | single-select | Yes     |
+| 15  | Assigned DSC        | user ref      | Yes     |
+| 16  | Attempt Count       | number        | No      |
+| 17  | Services Pitched    | multi-select  | No      |
+| 18  | Services Interested | multi-select  | No      |
+| 19  | Services Onboarded  | multi-select  | No      |
+| 20  | Quoted Amount       | number (Rs.)  | No      |
+| 21  | Closed Amount       | number (Rs.)  | No      |
+| 22  | Discount %          | computed      | No      |
+| 23  | Lost Reason         | single-select | No      |
+| 24  | Last Contact Date   | date          | No      |
+| 25  | Next Follow-up Date | date          | Yes     |
+| 26  | Notes               | long text     | No      |
 
-- **Assigned DSC** — which consultant owns the lead (required for role-based filtering).
-- **Source** — where the lead came from (LinkedIn, cold call, referral, etc.). Optional but useful.
-
-Table requirements for the first build: sortable columns, a search box, a status filter,
-colour-coded status badges (brand blue for active states), and a row click that opens a
-lead detail panel/page. Use mock data (~15–20 realistic rows).
+- **Phone** stays text (may hold multiple comma-separated numbers) — never a number type.
+- **Discount %** = `(Quoted − Closed) / Quoted × 100`, computed on the fly, never stored.
+- **Services** columns render as chips (first two + "+N").
 
 ---
 
-## 6. Lead statuses (pipeline)
+## 6. Lead statuses (pipeline — 17 values, fixed order)
 
-The source sheet has messy, inconsistent statuses. Normalise to this clean pipeline
-(adjust only with Prakhar's sign-off):
+`New → Attempted → Contacted → Details Shared → Interested → Qualified →
+Meeting Scheduled → Meeting Done → Proposal Sent → Negotiation → Won →
+Project Started → Project Delivered → Closed → Lost → On Hold → Cancelled`
 
-`New → First Call Pending → In Progress → Follow-up → Demo / Proposal → On Hold → Won → Dropped`
+- **1–10** (New → Negotiation) = active sales pipeline.
+- **11–14** (Won → Closed) = post-sale; anything at Won or beyond counts as won.
+- **Lost** and **On Hold** are exits from the active pipeline.
+- **Cancelled** = a _won_ deal that fell apart (reachable only from Won, Project
+  Started, or Project Delivered) — not the same as Lost.
 
-Plus a non-pipeline state: **Not Connecting** (unable to reach the prospect).
-
-Raw statuses seen in the sheet, for mapping reference: New, First Call Pending, In Progress,
-On Hold, Follow Back, Call not Connecting, Dropped, Open.
+Other single-selects (Priority, Lead Source, Industry, Lost Reason) and the
+Services multi-select are enumerated in `src/data/mockLeads.js`.
 
 ---
 

@@ -1,78 +1,54 @@
 // ===========================================================================
 //  SHARED DATA CONTRACT (JSDoc typedefs)
 // ===========================================================================
-//  This file defines the shapes that flow between the frontend and the future
-//  Laravel API. It is the single reference both teams code against.
-//
-//  These are JSDoc @typedefs (not TypeScript) so they add editor autocomplete
-//  and inline docs without a build step. Import them for hints like:
-//
-//      /** @param {import('@/lib/types').Lead} lead */
-//
-//  When the API is built, these shapes ARE the contract — keep the JSON your
-//  endpoints return matching the fields below. See docs/API_CONTRACT.md for the
-//  endpoint-by-endpoint details.
+//  The shapes that flow between the frontend and the future Laravel API — the
+//  single reference both teams code against. JSDoc (not TypeScript) so you get
+//  editor autocomplete without a build step. See docs/API_CONTRACT.md for the
+//  endpoint-by-endpoint details, and src/data/mockLeads.js for the option lists.
 // ===========================================================================
 
 /**
- * A sales lead. Mirrors the master-sheet columns (Build Brief §5) plus the two
- * CRM-only fields the sheet lacks: `assignedDscId` and `source`.
+ * A sales lead — the full 26-field schema (column order preserved).
+ * "Discount %" (column 22) is NOT here: it is computed from quoted/closed
+ * amounts on the fly and never stored (see src/lib/format.js `discountPct`).
  *
  * @typedef {Object} Lead
- * @property {string} id             Primary key (e.g. "L-1001").
- * @property {string} company        Prospect company name.
- * @property {string} industry       e.g. "Real Estate", "Dental".
- * @property {string} website        URL; may be "" / "N/A".
- * @property {string} contactPerson  May be "".
- * @property {string} designation    e.g. "Owner", "Director".
- * @property {string} phone          Free text (formatting varies).
- * @property {string} email          Often "-" when missing.
- * @property {string} location       City.
- * @property {LeadStatusKey} status  Pipeline status key (see statuses.js).
- * @property {string} budget         Free text ("200K", "Yet to confirm").
- * @property {string} remarks        Free-form follow-up notes.
- * @property {string} lastFollowUp   ISO date "YYYY-MM-DD" or "".
- * @property {string} nextFollowUp   ISO date "YYYY-MM-DD" or "".
- * @property {string} assignedDscId  Owning DSC id (see TeamMember.id).
- * @property {string} source         Lead source ("LinkedIn", "Cold Call"…).
+ * @property {string} leadId            Primary key, e.g. "SCRIPT8073".
+ * @property {string} company           Company name.
+ * @property {string} industry          One of INDUSTRIES.
+ * @property {string} contactPerson     May be "" (missing on scraped leads).
+ * @property {string} roleTitle         Role / title; may be "".
+ * @property {string} phone             Text — may hold several, comma-separated.
+ *                                      NEVER a number type.
+ * @property {string} email             Text — may hold several, comma-separated;
+ *                                      may be "".
+ * @property {string} city              City.
+ * @property {string} country           Defaults to "India".
+ * @property {string} website           URL; may be "".
+ * @property {string} linkedinUrl       URL; may be "".
+ * @property {string} leadSource        One of LEAD_SOURCES.
+ * @property {string} leadStatus        One of LEAD_STATUSES (pipeline order).
+ * @property {string} priority          One of PRIORITIES.
+ * @property {string} assignedDscId     Owning DSC id (see TeamMember.id).
+ * @property {number} attemptCount      Contact attempts.
+ * @property {string[]} servicesPitched     Subset of SERVICES.
+ * @property {string[]} servicesInterested  Subset of SERVICES.
+ * @property {string[]} servicesOnboarded   Subset of SERVICES.
+ * @property {number|null} quotedAmount  Rupees, or null.
+ * @property {number|null} closedAmount  Rupees, or null.
+ * @property {string} lostReason        One of LOST_REASONS; only when Lost.
+ * @property {string} lastContactDate   ISO "YYYY-MM-DD" or "".
+ * @property {string} nextFollowUpDate  ISO "YYYY-MM-DD" or "".
+ * @property {string} notes             Free-form long text.
  */
 
 /**
- * A member of the sales team.
+ * A DSC (sales consultant) referenced by a lead's `assignedDscId`.
  *
  * @typedef {Object} TeamMember
- * @property {string} id        Primary key (e.g. "u-anaya").
+ * @property {string} id        Primary key, e.g. "u-anaya".
  * @property {string} name      Display name.
- * @property {"dsc"|"bdm"} role "dsc" = front-line; "bdm" = manager.
  * @property {string} initials  Two-letter avatar initials.
- */
-
-/**
- * A status in the lead pipeline (Build Brief §6).
- *
- * @typedef {"new"|"first_call_pending"|"in_progress"|"follow_up"|
- *   "demo_proposal"|"on_hold"|"won"|"dropped"|"not_connecting"} LeadStatusKey
- *
- * @typedef {Object} LeadStatus
- * @property {LeadStatusKey} key      Stable machine value stored on a lead.
- * @property {string} label           Human label for the UI.
- * @property {"pipeline"|"special"} type  Funnel stage vs non-pipeline state.
- * @property {string} badge           Tailwind classes for the colour-coded pill.
- */
-
-/**
- * A DSC's daily activity metrics (Build Brief §7). Used by the KPI/Analytics
- * screens once built. One record per DSC per day.
- *
- * @typedef {Object} KpiEntry
- * @property {string} dscId               Which DSC (TeamMember.id).
- * @property {string} date                ISO date "YYYY-MM-DD".
- * @property {number} callsMade
- * @property {number} connectedCalls
- * @property {number} callBacks
- * @property {number} callsNotConnected
- * @property {number} linkedinConnectsSent
- * @property {number} linkedinMessagesSent
  */
 
 // This file intentionally exports nothing — it exists purely for the typedefs.

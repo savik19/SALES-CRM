@@ -1,33 +1,60 @@
 "use client";
 
 import { useEffect } from "react";
-import LeadStatusBadge from "./LeadStatusBadge";
-import { LEAD_STATUSES } from "@/data/statuses";
-import { dscName } from "@/data/users";
-import { formatDate, orDash } from "@/lib/format";
+import { StatusBadge, PriorityBadge } from "./LeadStatusBadge";
+import ServiceChips from "./ServiceChips";
+import { COLUMN_GROUPS } from "./columns";
+import { dscName } from "@/data/mockLeads";
+import { formatDate, formatINR, orDash, discountPctLabel } from "@/lib/format";
 
-// One labelled field row in the detail body.
-function Field({ label, children }) {
-  return (
-    <div className="py-2">
-      <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">
-        {label}
-      </dt>
-      <dd className="mt-0.5 text-sm text-slate-800">{children}</dd>
-    </div>
-  );
+// Full value for one field in the detail view (no truncation).
+function fieldValue(key, lead) {
+  const value = lead[key];
+  switch (key) {
+    case "leadStatus":
+      return <StatusBadge status={lead.leadStatus} />;
+    case "priority":
+      return <PriorityBadge priority={lead.priority} />;
+    case "assignedDscId":
+      return dscName(lead.assignedDscId);
+    case "servicesPitched":
+    case "servicesInterested":
+    case "servicesOnboarded":
+      return <ServiceChips values={value} max={99} />;
+    case "quotedAmount":
+    case "closedAmount":
+      return formatINR(value);
+    case "discountPct":
+      return discountPctLabel(lead);
+    case "attemptCount":
+      return value ?? 0;
+    case "lastContactDate":
+    case "nextFollowUpDate":
+      return formatDate(value);
+    case "website":
+    case "linkedinUrl":
+      return orDash(value) === "—" ? (
+        "—"
+      ) : (
+        <a
+          href={value}
+          target="_blank"
+          rel="noreferrer"
+          className="break-all text-brand hover:underline"
+        >
+          {value}
+        </a>
+      );
+    default:
+      return orDash(value);
+  }
 }
 
-// Slide-over lead detail. Shows the FULL schema (Brief §5) — the table only
-// shows a subset. Includes a status changer (Brief §2 pipeline) wired to the
-// parent's `onChangeStatus`, which today calls the mock updateLead().
-export default function LeadDetailPanel({ lead, onClose, onChangeStatus }) {
-  // Close on Escape.
+// Simple slide-over showing every field for a lead, grouped by section.
+export default function LeadDetailPanel({ lead, onClose }) {
   useEffect(() => {
     if (!lead) return;
-    const onKey = (e) => {
-      if (e.key === "Escape") onClose();
-    };
+    const onKey = (e) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [lead, onClose]);
@@ -36,7 +63,6 @@ export default function LeadDetailPanel({ lead, onClose, onChangeStatus }) {
 
   return (
     <>
-      {/* Backdrop */}
       <div
         className={`fixed inset-0 z-30 bg-slate-900/30 transition-opacity ${
           open ? "opacity-100" : "pointer-events-none opacity-0"
@@ -44,8 +70,6 @@ export default function LeadDetailPanel({ lead, onClose, onChangeStatus }) {
         onClick={onClose}
         aria-hidden="true"
       />
-
-      {/* Panel */}
       <aside
         className={`fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col bg-white shadow-xl transition-transform duration-200 ${
           open ? "translate-x-0" : "translate-x-full"
@@ -56,17 +80,17 @@ export default function LeadDetailPanel({ lead, onClose, onChangeStatus }) {
       >
         {lead ? (
           <>
-            {/* Header */}
             <div className="flex items-start justify-between border-b border-slate-200 px-6 py-5">
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">
                   {lead.company}
                 </h2>
-                <p className="mt-0.5 text-sm text-slate-500">
-                  {orDash(lead.industry)} · {orDash(lead.location)}
+                <p className="mt-0.5 font-mono text-xs text-slate-400">
+                  {lead.leadId}
                 </p>
-                <div className="mt-2">
-                  <LeadStatusBadge statusKey={lead.status} />
+                <div className="mt-2 flex items-center gap-2">
+                  <StatusBadge status={lead.leadStatus} />
+                  <PriorityBadge priority={lead.priority} />
                 </div>
               </div>
               <button
@@ -79,74 +103,26 @@ export default function LeadDetailPanel({ lead, onClose, onChangeStatus }) {
               </button>
             </div>
 
-            {/* Body */}
             <div className="flex-1 overflow-y-auto px-6 py-4">
-              {/* Status changer */}
-              <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                <label
-                  htmlFor="status-select"
-                  className="text-xs font-medium uppercase tracking-wide text-slate-500"
-                >
-                  Change status
-                </label>
-                <select
-                  id="status-select"
-                  value={lead.status}
-                  onChange={(e) => onChangeStatus(lead.id, e.target.value)}
-                  className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
-                >
-                  {LEAD_STATUSES.map((s) => (
-                    <option key={s.key} value={s.key}>
-                      {s.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <dl className="divide-y divide-slate-100">
-                <Field label="Contact Person">
-                  {orDash(lead.contactPerson)}
-                </Field>
-                <Field label="Designation">{orDash(lead.designation)}</Field>
-                <Field label="Phone">{orDash(lead.phone)}</Field>
-                <Field label="Email">{orDash(lead.email)}</Field>
-                <Field label="Website">
-                  {orDash(lead.website) === "—" ? (
-                    "—"
-                  ) : (
-                    <a
-                      href={lead.website}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-brand hover:underline"
-                    >
-                      {lead.website}
-                    </a>
-                  )}
-                </Field>
-                <Field label="Budget">{orDash(lead.budget)}</Field>
-                <Field label="Assigned DSC">
-                  {dscName(lead.assignedDscId)}
-                </Field>
-                <Field label="Source">{orDash(lead.source)}</Field>
-                <Field label="Last Follow-up">
-                  {formatDate(lead.lastFollowUp)}
-                </Field>
-                <Field label="Next Follow-up">
-                  {formatDate(lead.nextFollowUp)}
-                </Field>
-                <Field label="Remarks">
-                  <p className="whitespace-pre-wrap leading-relaxed text-slate-700">
-                    {orDash(lead.remarks)}
-                  </p>
-                </Field>
-              </dl>
-            </div>
-
-            {/* Footer note — reassignment etc. lands here once the API exists */}
-            <div className="border-t border-slate-200 px-6 py-3 text-xs text-slate-400">
-              {/* TODO(backend): edit/reassign actions wire to updateLead(). */}
-              Lead {lead.id}
+              {COLUMN_GROUPS.map((group) => (
+                <div key={group.name} className="mb-5">
+                  <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                    {group.name}
+                  </h3>
+                  <dl className="divide-y divide-slate-100">
+                    {group.columns.map((col) => (
+                      <div key={col.key} className="flex gap-4 py-2 text-sm">
+                        <dt className="w-40 shrink-0 text-slate-500">
+                          {col.label}
+                        </dt>
+                        <dd className="min-w-0 flex-1 text-slate-800">
+                          {fieldValue(col.key, lead)}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+              ))}
             </div>
           </>
         ) : null}

@@ -33,20 +33,21 @@ src/
   app/                     # Next.js App Router — one folder per route
     layout.jsx             #   app shell (sidebar + main); global font/metadata
     page.jsx               #   "/"  → redirects to /leads
-    leads/page.jsx         #   "/leads" — the Lead Table screen (state lives here)
+    leads/page.jsx         #   "/leads" — Lead Table screen (search/filter/sort state)
     globals.css            #   Tailwind entrypoint + base styles
   components/
     layout/                # Sidebar, Topbar — chrome shared across screens
-    leads/                 # Lead-specific presentational components
+    leads/                 # Lead Table feature:
+                           #   columns.js (26-col metadata), LeadTable, LeadToolbar,
+                           #   MultiSelectDropdown, ColumnPicker, LeadDetailPanel,
+                           #   LeadStatusBadge, ServiceChips, statusStyles.js
   data/                    # ⚠️ MOCK DATA ONLY — throwaway, replaced by the API
-    mockLeads.js           #   ~20 sample leads (full Lead shape)
-    statuses.js            #   status pipeline, colours, raw→clean mapping
-    users.js               #   team members (DSCs + BDM)
+    mockLeads.js           #   SINGLE data file: option lists + DSCs + ~20 leads
   lib/
     config.js              # env-driven config (API base URL, mock flag)
     leadsApi.js            # ⭐ DATA ACCESS LAYER — swap mock → API here
     types.js               # JSDoc typedefs = the shared data contract
-    format.js              # pure display helpers (dates, dashes, overdue)
+    format.js              # pure helpers (dates, INR, discount %, dashes)
 docs/                      # this documentation set
 ```
 
@@ -57,11 +58,13 @@ docs/                      # this documentation set
 3. The page holds UI state — search, filters, sort, selected row — and derives
    the visible rows with `useMemo`.
 4. Presentational components render what they're given:
-   - `LeadFilters` — search + status/DSC filters (controlled by the page).
-   - `LeadTable` — renders rows, raises `onSort` / `onRowClick`.
-   - `LeadDetailPanel` — slide-over with the full lead + status changer.
-5. A status change calls `updateLead()` (optimistic UI now; real persistence
-   once the PATCH endpoint exists).
+   - `LeadToolbar` — global search, the six multi-select filters, follow-up
+     date presets, active-filter chips, and the column-picker (controlled).
+   - `LeadTable` — renders only the visible columns (schema order), raises
+     `onSort` / `onRowClick`; per-type cell rendering + computed Discount %.
+   - `LeadDetailPanel` — slide-over showing every field, grouped.
+5. Sorting/filtering/search are all derived in the page with `useMemo`; the
+   column set is a `Set` of keys the column-picker toggles.
 
 **Pattern to copy:** _smart page_ (owns state + data calls) → _dumb components_
 (take props, raise events). Keep business rules out of components.

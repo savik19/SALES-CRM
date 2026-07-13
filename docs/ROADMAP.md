@@ -10,20 +10,25 @@ Legend: ✅ done · 🔜 next · ⬜ not started
 
 ### ✅ 1. Lead Table
 
-The core screen listing all leads.
+The core screen listing all leads (full 26-column schema).
 
-- Sortable columns, search, status + DSC filters, colour-coded badges.
-- Row click → detail slide-over with the full field set + inline status changer.
-- Overdue follow-up highlighting; DSC-vs-BDM scoping preview.
-- **Files:** `src/app/leads/`, `src/components/leads/`, `src/data/`, `src/lib/`.
+- 26 columns in fixed schema order; 10 shown by default with a column-picker to
+  toggle the rest. Every column sortable (text/number/date/pipeline-order/etc.).
+- Global search (company, contact, email, phone, lead id, city, notes).
+- Six multi-select filters + follow-up date presets (Today/Overdue/This Week),
+  combining AND across filters / OR within, with removable chips + clear-all.
+- Multi-select Services rendered as chips (+N overflow); computed Discount %;
+  colour-coded Status/Priority badges; row click → grouped detail slide-over.
+- **Files:** `src/app/leads/`, `src/components/leads/`, `src/data/mockLeads.js`.
 
 ### 🔜 2. Statuses — Pipeline / Kanban
 
 A board view of the pipeline; drag or select to change a lead's status.
 
-- Reuse `getLeads()` + `statuses.js` (`STATUS_ORDER` gives column order).
+- Reuse `getLeads()` + `LEAD_STATUSES` from `src/data/mockLeads.js` (its order
+  gives the board's column order).
 - New: `src/app/pipeline/page.jsx`, `src/components/pipeline/*`.
-- Wire status changes through `updateLead()` (already exists).
+- Wire status changes through `updateLead()` (already stubbed in `leadsApi.js`).
 
 ### ⬜ 3. Analytics
 
@@ -45,8 +50,8 @@ Daily entry form + roll-ups (calls, connects, LinkedIn outreach).
 DSC dashboard (my leads, my follow-ups, my targets) vs BDM dashboard (team
 analytics, per-DSC KPIs, targets vs achieved, reassignment).
 
-- Depends on **auth** (`GET /api/me`) so scoping moves server-side.
-- Remove the mock "Viewing as" switcher once auth drives the role.
+- Depends on **auth** (`GET /api/me`) so lead scoping happens server-side
+  (DSC sees own leads; BDM sees all).
 
 ---
 
@@ -58,13 +63,14 @@ Independent of the screens above; unblocks going live.
 2. Add auth (Sanctum or tokens); expose `GET /api/me`.
 3. Set `NEXT_PUBLIC_API_BASE_URL` → the data layer flips off mock data.
 4. Delete `src/data/*` and the mock branches in the `*Api.js` files.
-5. Move role scoping server-side; drop the "Viewing as" preview.
+5. Move lead scoping server-side (DSC vs BDM) via the authenticated user.
 
 ## Known TODOs in code
 
 Grep for `TODO(backend)` and `TODO:` — each marks a spot that needs a real
 decision or the API. Notable ones:
 
-- `leadsApi.js` — auth headers/credentials on requests.
-- `LeadDetailPanel.jsx` — edit/reassign actions + failure toasts on save.
-- `page.jsx` (leads) — revert optimistic status change if the PATCH fails.
+- `leadsApi.js` — auth headers/credentials on requests; `updateLead` PATCH is
+  stubbed but not yet used by any screen.
+- The Lead Table is read-only for now — edit/status-change/reassign UI comes
+  with later roadmap steps.

@@ -9,7 +9,8 @@
 All responses are JSON. All dates are ISO `YYYY-MM-DD` strings.
 
 The canonical field definitions live in [`src/lib/types.js`](../src/lib/types.js)
-as JSDoc typedefs — keep this doc and that file in sync.
+as JSDoc typedefs, and the option lists (with exact values + order) live in
+[`src/data/mockLeads.js`](../src/data/mockLeads.js). Keep them in sync with this doc.
 
 ---
 
@@ -18,8 +19,8 @@ as JSDoc typedefs — keep this doc and that file in sync.
 | Frontend function (`src/lib/leadsApi.js`) | Endpoint               | Used by                        |
 | ----------------------------------------- | ---------------------- | ------------------------------ |
 | `getLeads()`                              | `GET /api/leads`       | Lead Table                     |
-| `getLeadById(id)`                         | `GET /api/leads/:id`   | Lead detail (deep-link/future) |
-| `updateLead(id, changes)`                 | `PATCH /api/leads/:id` | Status change, reassignment    |
+| `getLeadById(leadId)`                     | `GET /api/leads/:id`   | Lead detail (deep-link/future) |
+| `updateLead(leadId, changes)`             | `PATCH /api/leads/:id` | Future edit/status changes     |
 
 The frontend passes **no auth today**. When auth exists, add it in the `apiGet`
 helper / `fetch` calls (one spot) — e.g. a Sanctum cookie (`credentials: "include"`)
@@ -29,67 +30,76 @@ or an `Authorization` header.
 
 ## Object shapes
 
-### Lead
+### Lead (26-field schema)
 
 ```jsonc
 {
-  "id": "L-1001", // string, primary key
-  "company": "Prestige Realty", // string
-  "industry": "Real Estate", // string
-  "website": "https://…", // string, may be "" or "N/A"
-  "contactPerson": "Vikram Shah", // string, may be ""
-  "designation": "Director", // string
-  "phone": "+91 98200 11223", // string (free text — DO NOT store as number)
-  "email": "vikram@…", // string, may be "-"
-  "location": "Mumbai", // string (city)
-  "status": "in_progress", // enum — see Status keys below
-  "budget": "200K", // string (free text: "200K", "Yet to confirm")
-  "remarks": "Sent pricing deck", // string (long, free-form)
-  "lastFollowUp": "2026-07-07", // ISO date or ""
-  "nextFollowUp": "2026-07-11", // ISO date or ""
+  "leadId": "SCRIPT8073", // string, primary key
+  "company": "Coromandel Suites", // string
+  "industry": "Hospitality", // enum — INDUSTRIES (single-select)
+  "contactPerson": "Rajesh Menon", // string, may be "" (scraped leads)
+  "roleTitle": "General Manager", // string, may be ""
+  "phone": "+91 98400 11223, +91 44 2851 0099", // TEXT — may be multiple,
+  // comma-separated. NEVER a number.
+  "email": "a@x.in, b@x.in", // TEXT — may be multiple, comma-separated; may be ""
+  "city": "Chennai", // string
+  "country": "India", // string, defaults to "India"
+  "website": "https://…", // string url, may be ""
+  "linkedinUrl": "https://…", // string url, may be ""
+  "leadSource": "LinkedIn", // enum — LEAD_SOURCES (single-select)
+  "leadStatus": "Negotiation", // enum — LEAD_STATUSES (single-select)
+  "priority": "High", // enum — PRIORITIES (single-select)
   "assignedDscId": "u-anaya", // string → TeamMember.id
-  "source": "LinkedIn", // string ("LinkedIn", "Cold Call", "Referral"…)
+  "attemptCount": 5, // number
+  "servicesPitched": ["Website Development", "AI Tools"], // multi-select, subset of SERVICES
+  "servicesInterested": ["Website Development"], // multi-select
+  "servicesOnboarded": [], // multi-select
+  "quotedAmount": 350000, // number (Rupees) or null
+  "closedAmount": null, // number (Rupees) or null
+  "lostReason": "", // enum — LOST_REASONS; only when leadStatus = "Lost"
+  "lastContactDate": "2026-07-09", // ISO date or ""
+  "nextFollowUpDate": "2026-07-14", // ISO date or ""
+  "notes": "Wants a revised quote…", // long text
 }
 ```
 
-### TeamMember
+> **Discount %** (schema column 22) is **computed, never stored**:
+> `(quotedAmount − closedAmount) / quotedAmount × 100`. The frontend derives it;
+> do not send it.
+
+### TeamMember (DSC)
 
 ```jsonc
 {
-  "id": "u-anaya", // string, primary key
+  "id": "u-anaya", // string, primary key (assignedDscId points here)
   "name": "Anaya Rao",
-  "role": "dsc", // "dsc" | "bdm"
-  "initials": "AR", // two letters (avatar)
+  "initials": "AR",
 }
 ```
 
-### Status keys (enum)
+---
 
-Store the **key** on a lead. Labels/colours live on the frontend
-([`src/data/statuses.js`](../src/data/statuses.js)), so the API only sends keys.
+## Enum values (send these exact strings)
 
-`new` · `first_call_pending` · `in_progress` · `follow_up` · `demo_proposal` ·
-`on_hold` · `won` · `dropped` · `not_connecting`
+Order matters where noted — the frontend sorts/filters against these lists.
 
-A raw→clean mapping for importing the legacy master sheet is in `statuses.js`
-(`RAW_STATUS_MAP`) — reuse it on the backend importer.
-
-### KpiEntry (for the upcoming KPI/Analytics screens — Brief §7)
-
-One record per DSC per day.
-
-```jsonc
-{
-  "dscId": "u-anaya",
-  "date": "2026-07-13",
-  "callsMade": 40,
-  "connectedCalls": 22,
-  "callBacks": 5,
-  "callsNotConnected": 18,
-  "linkedinConnectsSent": 30,
-  "linkedinMessagesSent": 12,
-}
-```
+- **Lead Status** (single-select, 17, pipeline order — sort by this order, not
+  alphabetically): `New, Attempted, Contacted, Details Shared, Interested,
+Qualified, Meeting Scheduled, Meeting Done, Proposal Sent, Negotiation, Won,
+Project Started, Project Delivered, Closed, Lost, On Hold, Cancelled`
+  - 1–10 = active pipeline · 11–14 = post-sale (Won onward counts as won) · Lost
+    and On Hold = exits from the active pipeline · Cancelled = a _won_ deal that
+    fell apart (reachable only from Won / Project Started / Project Delivered).
+- **Priority** (4): `Low, Medium, High, Urgent`
+- **Lead Source** (7): `LinkedIn, Instagram, Referral, Website, Cold Email, Event, Other`
+- **Industry** (14): `Hospitality, Healthcare, Manufacturing, Real Estate,
+Education, Logistics, Tourism & Travel, Wellness Yoga & Ayurveda, Automobile,
+Retail & Wholesale Trade, Professional & Financial Services, Events & Weddings,
+Beauty & Personal Care, Agri-business & Food`
+- **Lost Reason** (7): `Not Interested, No Budget, Chose Competitor, Unreachable,
+Wrong Fit / Not Our Service, Bad Data (wrong number), No Response`
+- **Services** (7, shared by the three Services multi-selects): `Custom Software,
+SaaS Subscription, Website Development, Digital Marketing, AI Tools, Mobile App, Other`
 
 ---
 
@@ -97,15 +107,7 @@ One record per DSC per day.
 
 ### `GET /api/leads`
 
-Returns the leads the **authenticated user** is allowed to see (Brief §4):
-
-- **DSC** → only leads where `assignedDscId` = the caller.
-- **BDM/Manager** → all leads.
-
-> Role scoping is the backend's job (it knows who is logged in). The frontend's
-> "Viewing as" switcher is a mock-only preview and goes away once auth is wired.
-
-**200** → `Lead[]`
+**200** → `Lead[]`. (Once auth exists, scope server-side per the logged-in user.)
 
 ### `GET /api/leads/:id`
 
@@ -113,25 +115,18 @@ Returns the leads the **authenticated user** is allowed to see (Brief §4):
 
 ### `PATCH /api/leads/:id`
 
-Body: a partial `Lead` (only changed fields), e.g. `{ "status": "won" }` or
-`{ "assignedDscId": "u-kabir" }`.
-
-**200** → the full updated `Lead` (server's canonical row).
+Body: a partial `Lead` (only changed fields), e.g. `{ "leadStatus": "Won" }`.
+**200** → the full updated `Lead`.
 
 ---
 
 ## Endpoints to add as those screens are built
 
-These aren't called yet — add them alongside the matching frontend screen and
-extend `src/lib/leadsApi.js` (or a sibling `kpisApi.js`) the same way.
-
-| Screen (roadmap)  | Suggested endpoints                                               |
-| ----------------- | ----------------------------------------------------------------- |
-| Team / assignment | `GET /api/team` → `TeamMember[]`                                  |
-| KPIs              | `GET /api/kpis?dscId=&from=&to=` → `KpiEntry[]`; `POST /api/kpis` |
-| Analytics         | `GET /api/analytics/leads?groupBy=status\|industry\|location`     |
-| Auth              | `GET /api/me` → current `TeamMember` (drives role scoping)        |
-| Targets           | `GET /api/targets` → company + per-DSC monthly targets            |
+| Screen (roadmap)  | Suggested endpoints                                |
+| ----------------- | -------------------------------------------------- |
+| Team / assignment | `GET /api/team` → `TeamMember[]`                   |
+| Auth              | `GET /api/me` → current user (drives role scoping) |
+| Analytics / KPIs  | see `docs/ROADMAP.md`                              |
 
 ---
 
@@ -139,7 +134,8 @@ extend `src/lib/leadsApi.js` (or a sibling `kpisApi.js`) the same way.
 
 1. **Field names and types stay exactly as above.** Renaming a field means
    touching the UI — coordinate first.
-2. **Send status/role as keys, not labels.** Presentation is the frontend's job.
-3. **Dates are ISO strings**, empty string when unset (not `null`), to match the
-   current components. If you prefer `null`, tell the frontend so helpers adjust.
-4. **`phone` and `budget` are strings** — the source data is messy on purpose.
+2. **Send enums as the exact label strings above.**
+3. **Dates are ISO strings**, empty string when unset (not `null`).
+4. **`phone` and `email` are strings** and may hold multiple comma-separated
+   values. **`phone` is never a number type.**
+5. **Amounts are plain numbers (Rupees) or `null`.** Never send "Discount %".
