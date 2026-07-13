@@ -38,7 +38,8 @@ export const MOCK_LEADS = [
     location: "Mumbai",
     status: "in_progress",
     budget: "200K",
-    remarks: "Interested in the full suite. Sent pricing deck, awaiting board review.",
+    remarks:
+      "Interested in the full suite. Sent pricing deck, awaiting board review.",
     lastFollowUp: "2026-07-07",
     nextFollowUp: "2026-07-11",
     assignedDscId: "u-anaya",
@@ -56,7 +57,8 @@ export const MOCK_LEADS = [
     location: "Ahmedabad",
     status: "follow_up",
     budget: "150K",
-    remarks: "Wants a follow-up call after their quarterly planning. Price-sensitive.",
+    remarks:
+      "Wants a follow-up call after their quarterly planning. Price-sensitive.",
     lastFollowUp: "2026-07-05",
     nextFollowUp: "2026-07-14",
     assignedDscId: "u-kabir",
@@ -92,7 +94,8 @@ export const MOCK_LEADS = [
     location: "Pune",
     status: "won",
     budget: "120K",
-    remarks: "Closed! Onboarding scheduled next week. Great reference potential.",
+    remarks:
+      "Closed! Onboarding scheduled next week. Great reference potential.",
     lastFollowUp: "2026-07-02",
     nextFollowUp: "",
     assignedDscId: "u-anaya",
@@ -164,7 +167,8 @@ export const MOCK_LEADS = [
     location: "Hyderabad",
     status: "in_progress",
     budget: "95K",
-    remarks: "Evaluating us vs a competitor. Emphasise support + onboarding speed.",
+    remarks:
+      "Evaluating us vs a competitor. Emphasise support + onboarding speed.",
     lastFollowUp: "2026-07-08",
     nextFollowUp: "2026-07-13",
     assignedDscId: "u-anaya",
@@ -182,7 +186,8 @@ export const MOCK_LEADS = [
     location: "Bengaluru",
     status: "on_hold",
     budget: "300K",
-    remarks: "Budget approved but paused until new financial year. Revisit in Q3.",
+    remarks:
+      "Budget approved but paused until new financial year. Revisit in Q3.",
     lastFollowUp: "2026-06-28",
     nextFollowUp: "2026-07-20",
     assignedDscId: "u-rohan",
@@ -236,7 +241,8 @@ export const MOCK_LEADS = [
     location: "Delhi",
     status: "demo_proposal",
     budget: "70K",
-    remarks: "Demo scheduled for their 3 branches. Wants multi-location pricing.",
+    remarks:
+      "Demo scheduled for their 3 branches. Wants multi-location pricing.",
     lastFollowUp: "2026-07-07",
     nextFollowUp: "2026-07-10",
     assignedDscId: "u-anaya",

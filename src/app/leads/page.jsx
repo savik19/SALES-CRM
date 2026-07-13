@@ -126,11 +126,7 @@ export default function LeadsPage() {
     <div className="flex h-full flex-col">
       <Topbar
         title="Lead Table"
-        subtitle={
-          isDscViewer
-            ? "Your leads only"
-            : "All leads across the team"
-        }
+        subtitle={isDscViewer ? "Your leads only" : "All leads across the team"}
         right={
           <label className="flex items-center gap-2 text-sm text-slate-600">
             <span className="hidden sm:inline">Viewing as</span>
