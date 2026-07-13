@@ -17,6 +17,12 @@ const NAV = [
     icon: "🧩",
     soon: false,
   },
+  {
+    href: "/settings/compensation",
+    label: "Compensation",
+    icon: "💰",
+    soon: false,
+  },
 ];
 
 export default function Sidebar() {
