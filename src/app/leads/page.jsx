@@ -339,25 +339,16 @@ export default function LeadsPage() {
         subtitle={
           isManager ? "All leads across the team" : `${viewer?.name}'s leads`
         }
-        right={
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setShowAnalytics((s) => !s)}
-              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              {showAnalytics ? "Hide analytics" : "Show analytics"}
-            </button>
-            <RoleSwitcher viewerId={viewerId} onChange={setViewerId} />
-          </div>
-        }
+        right={<RoleSwitcher viewerId={viewerId} onChange={setViewerId} />}
       />
 
-      {showAnalytics && analytics && !loading ? (
+      {analytics && !loading ? (
         <AnalyticsPanel
           variant={analytics.variant}
           dscName={viewer?.name}
           data={analytics.data}
+          collapsed={!showAnalytics}
+          onToggle={() => setShowAnalytics((s) => !s)}
         />
       ) : null}
 
