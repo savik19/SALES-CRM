@@ -50,10 +50,14 @@ src/
     mockLeads.js           #   SINGLE data file: option lists + team (BDM+DSCs)
                            #   + ~30 leads
     app/settings/columns/  # Column Mapping admin screen (rename/alias/add/remove)
+    app/settings/compensation/ # Admin: salaries, targets, commission, training
+    components/analytics/  # AnalyticsPanel (role-aware KPIs, meters, earnings)
   lib/
     config.js              # env-driven config (API base URL, mock flag)
     leadsApi.js            # ⭐ DATA ACCESS LAYER — swap mock → API here
     columnConfig.jsx       # editable column config (labels/aliases) + provider
+    compConfig.jsx         # editable compensation/targets config + provider (Admin)
+    analytics.js           # pure metrics + earnings computations
     leadImport.js          # pure Excel-import helpers (validate/dedupe/build)
     types.js               # JSDoc typedefs = the shared data contract
     format.js              # pure helpers (dates, INR, discount %, dashes)

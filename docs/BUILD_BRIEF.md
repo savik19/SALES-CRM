@@ -79,6 +79,20 @@
   - **Import fix:** bounded the parse to the real header width so large/stray
     column counts no longer freeze the "Reading…" step; the **Import button is
     always visible**, enabled only after a clean parse.
+- **2026-07-13** — Analytics + compensation + Admin role:
+  - **Toggleable Analytics panel** on the Lead Table, role-aware: a DSC sees
+    their own metrics + monthly target + earnings; BDM/Admin see team KPIs,
+    the company target, a status distribution, a per-DSC table, and BDM earnings.
+  - **Compensation model** (`src/lib/analytics.js`) driven entirely by an
+    editable config (`src/lib/compConfig`): 75% fixed salary always paid;
+    performance pay (25%) + commission (BDM 5% of all sales, DSC 3% of own)
+    paid ONLY if the monthly target is met; DSCs get a lower training salary for
+    the (configurable) training-cum-probation months. Statutory deduction on
+    gross. Seeded from the offer letters (DSC ₹25k, BDM ₹40k) — all variables.
+  - **Admin role** + **Compensation screen** (`/settings/compensation`): the
+    Admin edits salaries, targets, commission %, training length/amount, and
+    deductions; changes reflect immediately in the DSC/BDM analytics (verified:
+    lowering the DSC target unlocks a DSC's commission live).
 
 ---
 

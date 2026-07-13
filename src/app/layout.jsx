@@ -1,6 +1,7 @@
 import "./globals.css";
 import Sidebar from "@/components/layout/Sidebar";
 import { ColumnConfigProvider } from "@/lib/columnConfig";
+import { CompConfigProvider } from "@/lib/compConfig";
 
 export const metadata = {
   title: "ScriptGuru CRM",
@@ -14,10 +15,12 @@ export default function RootLayout({ children }) {
     <html lang="en">
       <body>
         <ColumnConfigProvider>
-          <div className="flex h-screen overflow-hidden">
-            <Sidebar />
-            <main className="flex-1 overflow-y-auto">{children}</main>
-          </div>
+          <CompConfigProvider>
+            <div className="flex h-screen overflow-hidden">
+              <Sidebar />
+              <main className="flex-1 overflow-y-auto">{children}</main>
+            </div>
+          </CompConfigProvider>
         </ColumnConfigProvider>
       </body>
     </html>

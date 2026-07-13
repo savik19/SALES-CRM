@@ -9,6 +9,9 @@ import LeadDetailSidebar from "@/components/leads/LeadDetailSidebar";
 import RoleSwitcher from "@/components/leads/RoleSwitcher";
 import BulkAssignBar from "@/components/leads/BulkAssignBar";
 import ImportModal from "@/components/leads/ImportModal";
+import AnalyticsPanel from "@/components/analytics/AnalyticsPanel";
+import { useCompConfig } from "@/lib/compConfig";
+import { dscAnalytics, teamAnalytics } from "@/lib/analytics";
 import {
   allKeys,
   searchableKeys,
@@ -123,7 +126,13 @@ export default function LeadsPage() {
   // ---- Role (demo switcher; real auth replaces this) -----------------------
   const [viewerId, setViewerId] = useState("u-prakhar");
   const viewer = USER_BY_ID[viewerId];
+  const isAdmin = viewer?.role === "admin";
   const isBDM = viewer?.role === "bdm";
+  // Admin and BDM both see the whole team + can import / (bulk-)assign.
+  const isManager = isBDM || isAdmin;
+
+  const { config } = useCompConfig();
+  const [showAnalytics, setShowAnalytics] = useState(true);
 
   // ---- Editable column config (labels, aliases, add/remove) ----------------
   const { columns } = useColumnConfig();
@@ -185,10 +194,10 @@ export default function LeadsPage() {
   useEffect(() => {
     setSelectedIds(new Set());
     setExpandedId(null);
-    if (isBDM) return;
+    if (isManager) return;
     // DSCs never filter/select by DSC.
     setFilters((f) => ({ ...f, assignedDscId: [] }));
-  }, [viewerId, isBDM]);
+  }, [viewerId, isManager]);
 
   function handleFilterChange(key, values) {
     setFilters((f) => ({ ...f, [key]: values }));
@@ -211,9 +220,19 @@ export default function LeadsPage() {
   // ---- Role scoping: DSC sees only their own leads -------------------------
   const roleScoped = useMemo(
     () =>
-      isBDM ? allLeads : allLeads.filter((l) => l.assignedDscId === viewerId),
-    [allLeads, isBDM, viewerId]
+      isManager
+        ? allLeads
+        : allLeads.filter((l) => l.assignedDscId === viewerId),
+    [allLeads, isManager, viewerId]
   );
+
+  // Analytics data — DSC sees their own; manager (BDM/Admin) sees the team.
+  const analytics = useMemo(() => {
+    if (!viewer) return null;
+    return isManager
+      ? { variant: "team", data: teamAnalytics(allLeads, DSCS, config) }
+      : { variant: "dsc", data: dscAnalytics(viewer, allLeads, config) };
+  }, [viewer, isManager, allLeads, config]);
 
   const cityOptions = useMemo(
     () =>
@@ -318,10 +337,29 @@ export default function LeadsPage() {
       <Topbar
         title="Lead Table"
         subtitle={
-          isBDM ? "All leads across the team" : `${viewer?.name}'s leads`
+          isManager ? "All leads across the team" : `${viewer?.name}'s leads`
         }
-        right={<RoleSwitcher viewerId={viewerId} onChange={setViewerId} />}
+        right={
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowAnalytics((s) => !s)}
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              {showAnalytics ? "Hide analytics" : "Show analytics"}
+            </button>
+            <RoleSwitcher viewerId={viewerId} onChange={setViewerId} />
+          </div>
+        }
       />
+
+      {showAnalytics && analytics && !loading ? (
+        <AnalyticsPanel
+          variant={analytics.variant}
+          dscName={viewer?.name}
+          data={analytics.data}
+        />
+      ) : null}
 
       <LeadToolbar
         search={search}
@@ -338,12 +376,12 @@ export default function LeadsPage() {
         onColumnsChange={setVisibleCols}
         columnGroups={groups}
         columnKeys={colKeys}
-        showDscFilter={isBDM}
-        canImport={isBDM}
+        showDscFilter={isManager}
+        canImport={isManager}
         onImport={() => setImportOpen(true)}
       />
 
-      {isBDM ? (
+      {isManager ? (
         <BulkAssignBar
           count={selectedIds.size}
           onAssign={handleBulkAssign}
@@ -365,7 +403,7 @@ export default function LeadsPage() {
             sortBy={sort.key}
             sortDir={sort.dir}
             onSort={handleSort}
-            selectable={isBDM}
+            selectable={isManager}
             selectedIds={selectedIds}
             onToggleSelect={toggleSelect}
             onToggleSelectAll={toggleSelectAll}
