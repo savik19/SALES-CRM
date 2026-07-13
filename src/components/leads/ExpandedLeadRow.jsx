@@ -51,6 +51,14 @@ function fieldConfig(key) {
 const inputClass =
   "w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm text-slate-800 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand disabled:bg-slate-100 disabled:text-slate-500";
 
+// Fields that read better spanning the full width of the grid.
+const WIDE_FIELDS = new Set([
+  "notes",
+  "servicesPitched",
+  "servicesInterested",
+  "servicesOnboarded",
+]);
+
 // One editable (or read-only) field.
 function Field({ column, lead, canEdit, canAssign, onChange }) {
   const key = column.key;
@@ -171,9 +179,10 @@ function Field({ column, lead, canEdit, canAssign, onChange }) {
     );
   }
 
+  const wide = WIDE_FIELDS.has(key);
   return (
-    <div>
-      <label className="mb-0.5 block text-xs font-medium text-slate-500">
+    <div className={wide ? "sm:col-span-2 lg:col-span-3" : ""}>
+      <label className="mb-1 block text-xs font-medium text-slate-500">
         {column.label}
       </label>
       {control}
@@ -181,28 +190,51 @@ function Field({ column, lead, canEdit, canAssign, onChange }) {
   );
 }
 
-// Inline expanded view — every field for a lead, grouped, edited in place.
+// Expanded lead detail — every field, grouped, edited in place. Rendered two
+// ways: inline under a table row (`variant="inline"`, a constrained multi-column
+// card) and inside the detail sidebar (`variant="sidebar"`, a clean single
+// column with no card chrome/header — the sidebar supplies those).
 // Editability follows the role: DSC edits their own leads' fields (but not the
 // assignee); BDM edits anything and is the only one who can (re)assign.
-export default function ExpandedLeadRow({ lead, role, onChange, groups }) {
+export default function ExpandedLeadRow({
+  lead,
+  role,
+  onChange,
+  groups,
+  variant = "inline",
+}) {
   const canEdit = true; // a viewer only ever sees leads they may edit
   const canAssign = role === "bdm";
+  const sidebar = variant === "sidebar";
+
+  const gridClass = sidebar
+    ? "grid grid-cols-1 gap-x-4 gap-y-3"
+    : "grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-3";
+
+  const container = sidebar
+    ? ""
+    : "max-w-5xl rounded-lg border border-slate-200 bg-white p-5";
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
-      <div className="mb-3 flex items-center gap-2">
-        <span className="font-mono text-xs text-slate-400">{lead.leadId}</span>
-        <span className="text-sm font-semibold text-slate-900">
-          {lead.company}
-        </span>
-      </div>
-      <div className="space-y-4">
+    <div className={container}>
+      {!sidebar ? (
+        <div className="mb-4 flex items-center gap-2 border-b border-slate-100 pb-3">
+          <span className="font-mono text-xs text-slate-400">
+            {lead.leadId}
+          </span>
+          <span className="text-sm font-semibold text-slate-900">
+            {lead.company}
+          </span>
+        </div>
+      ) : null}
+
+      <div className="space-y-5">
         {groups.map((group) => (
-          <div key={group.name}>
-            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          <section key={group.name}>
+            <h4 className="mb-2 border-b border-slate-100 pb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
               {group.name}
             </h4>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
+            <div className={gridClass}>
               {group.columns.map((col) => (
                 <Field
                   key={col.key}
@@ -214,7 +246,7 @@ export default function ExpandedLeadRow({ lead, role, onChange, groups }) {
                 />
               ))}
             </div>
-          </div>
+          </section>
         ))}
       </div>
     </div>

@@ -34,7 +34,7 @@ export default function LeadDetailSidebar({
         aria-hidden="true"
       />
       <aside
-        className={`fixed inset-y-0 right-0 z-40 flex w-full max-w-lg flex-col bg-white shadow-xl transition-transform duration-200 ${
+        className={`fixed inset-y-0 right-0 z-40 flex w-full max-w-xl flex-col bg-white shadow-xl transition-transform duration-200 ${
           open ? "translate-x-0" : "translate-x-full"
         }`}
         role="dialog"
@@ -66,12 +66,13 @@ export default function LeadDetailSidebar({
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-4 py-4">
+            <div className="flex-1 overflow-y-auto px-6 py-4">
               <ExpandedLeadRow
                 lead={lead}
                 role={role}
                 onChange={onChange}
                 groups={groups}
+                variant="sidebar"
               />
             </div>
           </>
