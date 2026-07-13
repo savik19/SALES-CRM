@@ -1,19 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Topbar from "@/components/layout/Topbar";
 import LeadToolbar from "@/components/leads/LeadToolbar";
 import LeadTable from "@/components/leads/LeadTable";
 import ExpandedLeadRow from "@/components/leads/ExpandedLeadRow";
+import LeadDetailSidebar from "@/components/leads/LeadDetailSidebar";
 import RoleSwitcher from "@/components/leads/RoleSwitcher";
 import BulkAssignBar from "@/components/leads/BulkAssignBar";
 import ImportModal from "@/components/leads/ImportModal";
 import {
-  COLUMNS,
-  COLUMN_BY_KEY,
-  DEFAULT_VISIBLE_KEYS,
-  SEARCHABLE_KEYS,
+  allKeys,
+  searchableKeys,
+  importColumns,
+  groupsOf,
+  byKey,
 } from "@/components/leads/columns";
+import { useColumnConfig } from "@/lib/columnConfig";
 import { getLeads, updateLead, assignLeads } from "@/lib/leadsApi";
 import { discountPct } from "@/lib/format";
 import {
@@ -122,6 +125,14 @@ export default function LeadsPage() {
   const viewer = USER_BY_ID[viewerId];
   const isBDM = viewer?.role === "bdm";
 
+  // ---- Editable column config (labels, aliases, add/remove) ----------------
+  const { columns } = useColumnConfig();
+  const colKeys = useMemo(() => allKeys(columns), [columns]);
+  const searchKeys = useMemo(() => searchableKeys(columns), [columns]);
+  const importCols = useMemo(() => importColumns(columns), [columns]);
+  const groups = useMemo(() => groupsOf(columns), [columns]);
+  const colByKey = useMemo(() => byKey(columns), [columns]);
+
   // ---- Data (working set the page owns; import/assign/edit mutate it) -------
   const [allLeads, setAllLeads] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -144,18 +155,31 @@ export default function LeadsPage() {
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [datePreset, setDatePreset] = useState("");
   const [sort, setSort] = useState({ key: null, dir: null });
-  const [visibleCols, setVisibleCols] = useState(
-    () => new Set(DEFAULT_VISIBLE_KEYS)
-  );
-  const [widths, setWidths] = useState(() =>
-    COLUMNS.reduce((acc, c) => {
-      acc[c.key] = c.width;
-      return acc;
-    }, {})
-  );
+  // All columns are visible by default.
+  const [visibleCols, setVisibleCols] = useState(() => new Set(colKeys));
+  const [widths, setWidths] = useState({});
   const [expandedId, setExpandedId] = useState(null);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [importOpen, setImportOpen] = useState(false);
+  const [detailLead, setDetailLead] = useState(null);
+
+  // Reconcile the visible set when columns are added/removed in the config:
+  // brand-new columns show by default; removed columns drop out. Deselections
+  // the user made are preserved.
+  const seenKeysRef = useRef(new Set(colKeys));
+  useEffect(() => {
+    setVisibleCols((prev) => {
+      const next = new Set(prev);
+      for (const k of colKeys) {
+        if (!seenKeysRef.current.has(k)) next.add(k); // new column
+      }
+      for (const k of [...next]) {
+        if (!colKeys.includes(k)) next.delete(k); // removed column
+      }
+      seenKeysRef.current = new Set(colKeys);
+      return next;
+    });
+  }, [colKeys]);
 
   // Reset selection/expansion when the viewer (role) changes.
   useEffect(() => {
@@ -211,8 +235,8 @@ export default function LeadsPage() {
   };
 
   const visibleColumns = useMemo(
-    () => COLUMNS.filter((c) => visibleCols.has(c.key)),
-    [visibleCols]
+    () => columns.filter((c) => visibleCols.has(c.key)),
+    [columns, visibleCols]
   );
 
   // ---- Search + filter + sort ----------------------------------------------
@@ -225,7 +249,8 @@ export default function LeadsPage() {
       }
       if (!matchesDatePreset(lead.nextFollowUpDate, datePreset)) return false;
       if (q) {
-        const hay = SEARCHABLE_KEYS.map((k) => lead[k])
+        const hay = searchKeys
+          .map((k) => lead[k])
           .join(" ")
           .toLowerCase();
         if (!hay.includes(q)) return false;
@@ -233,11 +258,12 @@ export default function LeadsPage() {
       return true;
     });
     if (sort.key) {
-      const col = COLUMN_BY_KEY[sort.key];
-      rows = [...rows].sort((a, b) => compareLeads(a, b, col, sort.dir));
+      const col = colByKey[sort.key];
+      if (col)
+        rows = [...rows].sort((a, b) => compareLeads(a, b, col, sort.dir));
     }
     return rows;
-  }, [roleScoped, search, filters, datePreset, sort]);
+  }, [roleScoped, search, filters, datePreset, sort, searchKeys, colByKey]);
 
   // ---- Selection (BDM) -----------------------------------------------------
   const allSelected =
@@ -266,6 +292,8 @@ export default function LeadsPage() {
     setAllLeads((rows) =>
       rows.map((l) => (l.leadId === leadId ? { ...l, ...patch } : l))
     );
+    // Keep the open sidebar's controlled fields in sync with the edit.
+    setDetailLead((d) => (d && d.leadId === leadId ? { ...d, ...patch } : d));
     updateLead(leadId, patch).catch((e) => console.error(e));
   }
 
@@ -308,6 +336,8 @@ export default function LeadsPage() {
         options={filterOptions}
         visibleColumns={visibleCols}
         onColumnsChange={setVisibleCols}
+        columnGroups={groups}
+        columnKeys={colKeys}
         showDscFilter={isBDM}
         canImport={isBDM}
         onImport={() => setImportOpen(true)}
@@ -349,17 +379,28 @@ export default function LeadsPage() {
                 lead={lead}
                 role={viewer?.role}
                 onChange={handleFieldChange}
+                groups={groups}
               />
             )}
+            onOpenDetail={setDetailLead}
           />
         )}
       </div>
+
+      <LeadDetailSidebar
+        lead={detailLead}
+        role={viewer?.role}
+        groups={groups}
+        onChange={handleFieldChange}
+        onClose={() => setDetailLead(null)}
+      />
 
       <ImportModal
         open={importOpen}
         onClose={() => setImportOpen(false)}
         existingLeads={allLeads}
         onImported={handleImported}
+        importCols={importCols}
       />
     </div>
   );

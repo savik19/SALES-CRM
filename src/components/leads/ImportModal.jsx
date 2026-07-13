@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import ExcelJS from "exceljs";
-import { IMPORT_SHEET_HEADERS } from "./columns";
 import {
   validateHeaders,
   buildLeadFromRow,
@@ -16,29 +15,29 @@ const tag = {
   error: "bg-red-100 text-red-700",
 };
 
-// Convert an ExcelJS cell value (which can be a string, number, Date, rich text,
-// hyperlink, or formula object) to a plain value.
+// Convert an ExcelJS cell value to a plain value (string | number | Date).
 function cellValue(v) {
   if (v === null || v === undefined) return "";
   if (v instanceof Date) return v;
   if (typeof v === "object") {
     if (Array.isArray(v.richText))
       return v.richText.map((t) => t.text).join("");
-    if (v.text !== undefined) return v.text; // hyperlink { text, hyperlink }
-    if (v.result !== undefined) return v.result; // formula { formula, result }
-    if (v.error) return "";
+    if (v.text !== undefined) return v.text; // hyperlink
+    if (v.result !== undefined) return v.result; // formula
     return "";
   }
   return v;
 }
 
 // Excel import flow (BDM only): upload → validate headers → preview + dedupe →
-// commit → summary. Parsing uses ExcelJS; the logic lives in lib/leadImport.js.
+// commit → summary. `importCols` are the expected columns (from the editable
+// config); parsing uses ExcelJS; logic lives in lib/leadImport.js.
 export default function ImportModal({
   open,
   onClose,
   existingLeads,
   onImported,
+  importCols,
 }) {
   const [stage, setStage] = useState("select"); // select | preview | done
   const [fileName, setFileName] = useState("");
@@ -59,7 +58,6 @@ export default function ImportModal({
     setClassified([]);
     setSummary(null);
   }
-
   function close() {
     reset();
     onClose();
@@ -78,17 +76,29 @@ export default function ImportModal({
       const wb = new ExcelJS.Workbook();
       await wb.xlsx.load(buffer);
       const ws = wb.worksheets[0];
-      if (!ws || ws.rowCount === 0) {
-        setParseError("The sheet is empty.");
+      if (!ws) {
+        setParseError("The workbook has no sheets.");
         return;
       }
 
-      // Read every row as a dense, column-aligned array.
-      const colCount = ws.columnCount;
+      // Determine the USED column width from the header row. (Real sheets can
+      // report a huge columnCount from stray formatting, which would freeze a
+      // naive 1..columnCount scan — so we bound to the real header width.)
+      const headerVals = ws.getRow(1).values || [];
+      let usedCols = 0;
+      for (let i = 1; i < headerVals.length; i++) {
+        if (String(cellValue(headerVals[i]) ?? "").trim() !== "") usedCols = i;
+      }
+      usedCols = Math.min(usedCols, 200);
+      if (!usedCols) {
+        setParseError("Couldn't find a header row in the sheet.");
+        return;
+      }
+
       const rows = [];
       ws.eachRow({ includeEmpty: false }, (row) => {
         const cells = [];
-        for (let i = 1; i <= colCount; i++) {
+        for (let i = 1; i <= usedCols; i++) {
           cells.push(cellValue(row.getCell(i).value));
         }
         rows.push(cells);
@@ -99,7 +109,7 @@ export default function ImportModal({
       }
 
       const headers = rows[0].map((h) => (h === null ? "" : String(h).trim()));
-      const check = validateHeaders(headers);
+      const check = validateHeaders(headers, importCols);
       if (!check.ok) {
         setHeaderError(check);
         return;
@@ -109,9 +119,10 @@ export default function ImportModal({
           `Ignoring ${check.unexpected.length} extra column(s): ${check.unexpected.join(", ")}`,
         ]);
       }
-
       const dataRows = rows.slice(1).filter((r) => !isBlankRow(r));
-      const leads = dataRows.map((r) => buildLeadFromRow(check.indexByKey, r));
+      const leads = dataRows.map((r) =>
+        buildLeadFromRow(importCols, check.indexByKey, r)
+      );
       setClassified(classifyRows(leads, existingLeads));
       setStage("preview");
     } catch (err) {
@@ -121,8 +132,7 @@ export default function ImportModal({
       );
     } finally {
       setLoading(false);
-      // allow re-selecting the same file
-      e.target.value = "";
+      e.target.value = ""; // allow re-selecting the same file
     }
   }
 
@@ -144,6 +154,8 @@ export default function ImportModal({
     duplicate: classified.filter((c) => c.status === "duplicate").length,
     error: classified.filter((c) => c.status === "error").length,
   };
+  const canImport = stage === "preview" && counts.new > 0;
+  const expectedHeaders = importCols.map((c) => c.label);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
@@ -163,16 +175,17 @@ export default function ImportModal({
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-5">
-          {/* STAGE: select */}
           {stage === "select" ? (
             <div>
               <p className="text-sm text-slate-600">
                 Upload the scraped <code>.xlsx</code> sheet. It must contain
-                these {IMPORT_SHEET_HEADERS.length} columns (extra columns are
-                ignored; common header variants are matched automatically):
+                these {expectedHeaders.length} columns (extra columns are
+                ignored; common header variants are matched automatically — edit
+                the mapping under{" "}
+                <span className="font-medium">Column Mapping</span>):
               </p>
               <div className="mt-2 flex flex-wrap gap-1">
-                {IMPORT_SHEET_HEADERS.map((h) => (
+                {expectedHeaders.map((h) => (
                   <span
                     key={h}
                     className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600"
@@ -230,12 +243,14 @@ export default function ImportModal({
                       {headerError.unexpected.join(", ")}
                     </p>
                   ) : null}
+                  <p className="mt-1 text-xs">
+                    Tip: add these header names as aliases under Column Mapping.
+                  </p>
                 </div>
               ) : null}
             </div>
           ) : null}
 
-          {/* STAGE: preview */}
           {stage === "preview" ? (
             <div>
               {warnings.length ? (
@@ -312,7 +327,6 @@ export default function ImportModal({
             </div>
           ) : null}
 
-          {/* STAGE: done */}
           {stage === "done" && summary ? (
             <div>
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
@@ -346,33 +360,46 @@ export default function ImportModal({
           ) : null}
         </div>
 
+        {/* Footer — Import is always visible, enabled only after a clean parse */}
         <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-6 py-4">
-          {stage === "preview" ? (
-            <>
-              <button
-                type="button"
-                onClick={reset}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Choose another file
-              </button>
-              <button
-                type="button"
-                onClick={commit}
-                disabled={counts.new === 0}
-                className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Import {counts.new} lead{counts.new === 1 ? "" : "s"}
-              </button>
-            </>
-          ) : (
+          {stage === "done" ? (
             <button
               type="button"
               onClick={close}
               className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
             >
-              {stage === "done" ? "Done" : "Cancel"}
+              Done
             </button>
+          ) : (
+            <>
+              {stage === "preview" ? (
+                <button
+                  type="button"
+                  onClick={reset}
+                  className="mr-auto rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Choose another file
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={close}
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={commit}
+                disabled={!canImport}
+                title={canImport ? undefined : "Upload a valid sheet first"}
+                className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {canImport
+                  ? `Import ${counts.new} lead${counts.new === 1 ? "" : "s"}`
+                  : "Import"}
+              </button>
+            </>
           )}
         </div>
       </div>

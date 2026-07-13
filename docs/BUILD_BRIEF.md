@@ -64,6 +64,21 @@
   and added a **loading state** so the modal never sits dead after a file pick.
   Verified with a messy fixture (aliased + reordered headers, an extra column,
   real date cells): 2 new / 1 duplicate / 1 error, dates rendered correctly.
+- **2026-07-13** — Editable columns + detail UX:
+  - **Column Mapping screen** (`/settings/columns`): the BDM renames CRM columns,
+    edits the sheet-header aliases each maps to, toggles import-sheet membership,
+    and adds/removes columns — click **Update** to apply. Config lives in an
+    editable context (`src/lib/columnConfig`), seeded from `columns.js`, persisted
+    to localStorage (TODO: `GET/PUT /api/columns`). It drives BOTH the table
+    headers and the import matching.
+  - **All columns visible by default**; column-picker gains **Select all** +
+    **Reset** (deselect all).
+  - **Detail sidebar** on Company/Lead Id click (slide-over) alongside the row
+    expand-arrow dropdown — both show every field with the editable ones editable
+    (shared `ExpandedLeadRow`).
+  - **Import fix:** bounded the parse to the real header width so large/stray
+    column counts no longer freeze the "Reading…" step; the **Import button is
+    always visible**, enabled only after a clean parse.
 
 ---
 

@@ -44,6 +44,8 @@ export default function LeadToolbar({
   showDscFilter = true,
   canImport = false,
   onImport,
+  columnGroups,
+  columnKeys,
 }) {
   const filterDefs = showDscFilter
     ? ALL_FILTER_DEFS
@@ -119,7 +121,12 @@ export default function LeadToolbar({
               ⬆ Import Excel
             </button>
           ) : null}
-          <ColumnPicker visible={visibleColumns} onChange={onColumnsChange} />
+          <ColumnPicker
+            groups={columnGroups}
+            allKeys={columnKeys}
+            visible={visibleColumns}
+            onChange={onColumnsChange}
+          />
         </div>
       </div>
 

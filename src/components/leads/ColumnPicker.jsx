@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { COLUMN_GROUPS, DEFAULT_VISIBLE_KEYS } from "./columns";
 
-// Dropdown of checkboxes to toggle which of the 26 columns are visible.
-// Columns are listed in schema order, grouped with section headers.
+// Dropdown of checkboxes to toggle which columns are visible. Columns come in
+// grouped (in schema order). All columns are visible by default; "Select all"
+// checks every column, "Reset" clears them all (per the product spec).
 // Controlled — parent owns `visible` (a Set of column keys).
-export default function ColumnPicker({ visible, onChange }) {
+export default function ColumnPicker({ groups, allKeys, visible, onChange }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -42,8 +42,7 @@ export default function ColumnPicker({ visible, onChange }) {
       >
         <span>⚙ Columns</span>
         <span className="text-slate-400">
-          {visible.size}/
-          {COLUMN_GROUPS.reduce((n, g) => n + g.columns.length, 0)}
+          {visible.size}/{allKeys.length}
         </span>
       </button>
 
@@ -53,15 +52,24 @@ export default function ColumnPicker({ visible, onChange }) {
             <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">
               Show columns
             </span>
-            <button
-              type="button"
-              onClick={() => onChange(new Set(DEFAULT_VISIBLE_KEYS))}
-              className="text-xs font-medium text-brand hover:underline"
-            >
-              Reset
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => onChange(new Set(allKeys))}
+                className="text-xs font-medium text-brand hover:underline"
+              >
+                Select all
+              </button>
+              <button
+                type="button"
+                onClick={() => onChange(new Set())}
+                className="text-xs font-medium text-slate-500 hover:underline"
+              >
+                Reset
+              </button>
+            </div>
           </div>
-          {COLUMN_GROUPS.map((group) => (
+          {groups.map((group) => (
             <div key={group.name} className="mb-1">
               <div className="px-2 pb-0.5 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                 {group.name}

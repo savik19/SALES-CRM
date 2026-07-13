@@ -49,14 +49,21 @@ src/
   data/                    # ⚠️ MOCK DATA ONLY — throwaway, replaced by the API
     mockLeads.js           #   SINGLE data file: option lists + team (BDM+DSCs)
                            #   + ~30 leads
+    app/settings/columns/  # Column Mapping admin screen (rename/alias/add/remove)
   lib/
     config.js              # env-driven config (API base URL, mock flag)
     leadsApi.js            # ⭐ DATA ACCESS LAYER — swap mock → API here
+    columnConfig.jsx       # editable column config (labels/aliases) + provider
     leadImport.js          # pure Excel-import helpers (validate/dedupe/build)
     types.js               # JSDoc typedefs = the shared data contract
     format.js              # pure helpers (dates, INR, discount %, dashes)
 docs/                      # this documentation set
 ```
+
+The Lead Table's columns are not hard-coded: `columns.js` is the **seed**, and
+`lib/columnConfig.jsx` holds the live, editable config (labels + sheet-header
+aliases + add/remove), which the Column Mapping screen edits and both the table
+and the importer read from.
 
 ## Data flow (Lead Table example)
 
