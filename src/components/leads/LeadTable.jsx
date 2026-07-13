@@ -36,7 +36,9 @@ export default function LeadTable({
     return (
       <div className="flex flex-col items-center justify-center px-6 py-20 text-center">
         <div className="text-3xl">🗂️</div>
-        <p className="mt-3 text-sm font-medium text-slate-700">No leads match</p>
+        <p className="mt-3 text-sm font-medium text-slate-700">
+          No leads match
+        </p>
         <p className="mt-1 text-sm text-slate-500">
           Try clearing the search or filters.
         </p>
@@ -117,9 +119,7 @@ export default function LeadTable({
                 <td className="whitespace-nowrap px-4 py-3">
                   <span
                     className={
-                      due
-                        ? "font-medium text-red-600"
-                        : "text-slate-600"
+                      due ? "font-medium text-red-600" : "text-slate-600"
                     }
                     title={due ? "Follow-up due" : undefined}
                   >

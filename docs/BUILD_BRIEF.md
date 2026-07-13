@@ -18,6 +18,17 @@
     DSC filters, colour-coded badges, row-click detail panel with the full field
     set + inline status changer, overdue-follow-up highlight, and a "Viewing as"
     switcher previewing DSC-vs-BDM scoping (§4). Steps 2–5 not started.
+  - Deployed to Vercel from `main` (Next.js preset pinned via `vercel.json`;
+    Node pinned to 22 via `engines`).
+- **2026-07-13** — Developer-handoff pass so the dev team can extend this into a
+  full product without friction:
+  - Added the shared data contract in code (`src/lib/types.js` JSDoc typedefs)
+    and env-driven config (`src/lib/config.js` + `.env.example`); `leadsApi.js`
+    now has real `fetch` branches gated by a mock flag.
+  - Added the docs set: `ARCHITECTURE.md`, `API_CONTRACT.md`, `ROADMAP.md`, and
+    `CONTRIBUTING.md`; README turned into an index.
+  - Added tooling (ESLint + Prettier + EditorConfig + `.nvmrc`) and GitHub
+    scaffolding (PR/issue templates, CI running lint + format + build).
 
 ---
 
@@ -28,6 +39,7 @@ built in **React** (compatible with Next.js). The backend (database, auth, busin
 APIs) is built separately by the ScriptGuru dev team in **PHP Laravel**.
 
 **Division of responsibility**
+
 - This repo: all screens, layout, components, states, and workflow — built with realistic
   **mock/placeholder data** for now.
 - Laravel team: database, authentication, permissions, and REST/JSON APIs. They will later
@@ -86,23 +98,24 @@ passing them in as data, not constants.)
 
 ## 5. Lead Table — column schema (from the real master sheet)
 
-| Field | Type | Notes |
-|---|---|---|
-| Company | text | Prospect company name |
-| Industry | text | e.g. Real Estate, Manufacturing, Dermatologist, Dental, Pet Shop |
-| Website | url | May be empty / "N/A" |
-| Contact Person | text | May be empty |
-| Designation | text | e.g. Owner, Operational Manager, Director |
-| Phone Number | text | Keep as text (formatting varies) |
-| Email | text | Often missing ("-") |
-| Location | text | City |
-| Status | enum | See §6 |
-| Budget | text | Messy in source ("200K", "30K", "Yet to confirm") — text for now |
-| Remarks | long text | Free-form notes / follow-up context |
-| Last Follow-up Date | date | "Last FUP Date" in the sheet |
-| Next Follow-up Date | date | "Next FUP Date" in the sheet |
+| Field               | Type      | Notes                                                            |
+| ------------------- | --------- | ---------------------------------------------------------------- |
+| Company             | text      | Prospect company name                                            |
+| Industry            | text      | e.g. Real Estate, Manufacturing, Dermatologist, Dental, Pet Shop |
+| Website             | url       | May be empty / "N/A"                                             |
+| Contact Person      | text      | May be empty                                                     |
+| Designation         | text      | e.g. Owner, Operational Manager, Director                        |
+| Phone Number        | text      | Keep as text (formatting varies)                                 |
+| Email               | text      | Often missing ("-")                                              |
+| Location            | text      | City                                                             |
+| Status              | enum      | See §6                                                           |
+| Budget              | text      | Messy in source ("200K", "30K", "Yet to confirm") — text for now |
+| Remarks             | long text | Free-form notes / follow-up context                              |
+| Last Follow-up Date | date      | "Last FUP Date" in the sheet                                     |
+| Next Follow-up Date | date      | "Next FUP Date" in the sheet                                     |
 
 **Fields the CRM needs that the sheet does NOT have (add these):**
+
 - **Assigned DSC** — which consultant owns the lead (required for role-based filtering).
 - **Source** — where the lead came from (LinkedIn, cold call, referral, etc.). Optional but useful.
 
@@ -129,6 +142,7 @@ On Hold, Follow Back, Call not Connecting, Dropped, Open.
 ## 7. Daily activity KPIs (per DSC, entered daily)
 
 These are logged by each DSC daily and roll up into the KPI/analytics screens:
+
 - Calls Made
 - Connected Calls
 - Call Backs

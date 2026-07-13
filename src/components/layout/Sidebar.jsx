@@ -32,7 +32,8 @@ export default function Sidebar() {
       {/* Nav */}
       <nav className="flex-1 space-y-1 px-3">
         {NAV.map((item) => {
-          const active = pathname === item.href || pathname.startsWith(item.href + "/");
+          const active =
+            pathname === item.href || pathname.startsWith(item.href + "/");
           const base =
             "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors";
           if (item.soon) {
