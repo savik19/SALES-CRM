@@ -1,8 +1,13 @@
 // ---------------------------------------------------------------------------
 // Excel import — pure helpers (no file I/O, no React). The BDM uploads an .xlsx
-// containing the 17 import-sheet columns (see columns.js `IMPORT_SHEET_*`).
+// containing (at least) the 17 import-sheet columns (columns.js `IMPORT_SHEET_*`).
 // The modal reads the file to rows and calls these; keeping them pure makes the
 // validation/dedupe logic easy to test and reuse.
+//
+// Real scraped sheets are messy: headers vary in case/spacing/punctuation, use
+// common synonyms ("Phone Number", "Lead ID"), and often carry EXTRA columns.
+// So matching is tolerant: normalise + alias, allow extra columns (reported as a
+// non-blocking warning), and only block when a REQUIRED column is missing.
 // ---------------------------------------------------------------------------
 
 import {
@@ -10,11 +15,95 @@ import {
   IMPORT_SHEET_HEADERS,
 } from "@/components/leads/columns";
 
-// Columns whose values should be coerced to ISO date strings.
 const DATE_KEYS = new Set(["lastContactDate", "nextFollowUpDate"]);
 
-// Coerce a raw cell (string | number | Date | null) to a trimmed string, and
-// date cells to ISO "YYYY-MM-DD".
+// Normalise a header: lowercase, punctuation → spaces, collapse spaces, trim.
+// "Role / Title" → "role title", "LinkedIn URL" → "linkedin url".
+function norm(h) {
+  return String(h ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+// Common header synonyms → the normalised canonical header they map to.
+const ALIASES = {
+  lead: "lead id",
+  id: "lead id",
+  "company name": "company",
+  organisation: "company",
+  organization: "company",
+  contact: "contact person",
+  "contact name": "contact person",
+  name: "contact person",
+  role: "role title",
+  title: "role title",
+  designation: "role title",
+  "phone number": "phone",
+  "phone no": "phone",
+  "contact number": "phone",
+  mobile: "phone",
+  "mobile number": "phone",
+  "email id": "email",
+  "email address": "email",
+  "e mail": "email",
+  location: "city",
+  town: "city",
+  web: "website",
+  "website url": "website",
+  linkedin: "linkedin url",
+  "linkedin profile": "linkedin url",
+  "linkedin link": "linkedin url",
+  source: "lead source",
+  status: "lead status",
+  "last contact": "last contact date",
+  "last contacted": "last contact date",
+  "last contacted date": "last contact date",
+  "next follow up": "next follow up date",
+  "follow up date": "next follow up date",
+  "next fup date": "next follow up date",
+  remarks: "notes",
+  note: "notes",
+  comments: "notes",
+};
+
+// Canonicalise a raw header to a normalised canonical form (applies aliases).
+function canon(h) {
+  const n = norm(h);
+  return ALIASES[n] || n;
+}
+
+// Validate the sheet's headers against the 17 required columns.
+// Returns:
+//   ok          – true when no REQUIRED column is missing
+//   missing     – required column labels not found (blocking)
+//   unexpected  – sheet headers not recognised (non-blocking warning, ignored)
+//   indexByKey  – { columnKey -> sheet column index } for the matched columns
+export function validateHeaders(headers) {
+  const canonHeaders = headers.map(canon);
+  const indexByKey = {};
+  const missing = [];
+
+  for (const col of IMPORT_SHEET_COLUMNS) {
+    const target = norm(col.label);
+    const i = canonHeaders.findIndex((h) => h === target);
+    if (i === -1) missing.push(col.label);
+    else indexByKey[col.key] = i;
+  }
+
+  const expectedSet = new Set(IMPORT_SHEET_HEADERS.map(norm));
+  const unexpected = headers.filter((h, i) => {
+    if (!String(h ?? "").trim()) return false;
+    // A header is "unexpected" only if it maps to nothing we know AND isn't a
+    // matched column.
+    const matched = Object.values(indexByKey).includes(i);
+    return !matched && !expectedSet.has(canon(h));
+  });
+
+  return { ok: missing.length === 0, missing, unexpected, indexByKey };
+}
+
+// Coerce a raw cell to a trimmed string; dates → ISO "YYYY-MM-DD".
 function coerce(key, cell) {
   if (cell === null || cell === undefined) return "";
   if (cell instanceof Date && !Number.isNaN(cell.getTime())) {
@@ -24,59 +113,19 @@ function coerce(key, cell) {
     return `${y}-${m}-${d}`;
   }
   const s = String(cell).trim();
-  if (DATE_KEYS.has(key)) {
-    // Accept already-ISO strings; leave others as-is for the BDM to eyeball.
-    return s;
-  }
-  return s;
+  return DATE_KEYS.has(key) ? s : s;
 }
 
-// Validate the sheet's header row against the expected 17.
-// Returns { ok, missing, unexpected } — case/space-insensitive matching, but
-// misnamed headers surface as both "missing" (expected not found) and
-// "unexpected" (sheet header not recognised).
-export function validateHeaders(headers) {
-  const norm = (h) =>
-    String(h ?? "")
-      .trim()
-      .toLowerCase();
-  const present = headers.map(norm).filter(Boolean);
-  const expected = IMPORT_SHEET_HEADERS.map(norm);
-
-  const missing = IMPORT_SHEET_HEADERS.filter(
-    (h) => !present.includes(norm(h))
-  );
-  const unexpected = headers.filter((h) => h && !expected.includes(norm(h)));
-  return {
-    ok: missing.length === 0 && unexpected.length === 0,
-    missing,
-    unexpected,
-  };
-}
-
-// Build a lead object from one sheet row (17 fields) + CRM-only defaults.
+// Build a lead object from one sheet row using the matched column index map.
 // Business rule: every imported lead is Status = New, Assigned DSC = blank.
-export function buildLeadFromRow(headers, row) {
-  const idx = {};
-  headers.forEach((h, i) => {
-    idx[
-      String(h ?? "")
-        .trim()
-        .toLowerCase()
-    ] = i;
-  });
-
+export function buildLeadFromRow(indexByKey, row) {
   const lead = {};
   for (const col of IMPORT_SHEET_COLUMNS) {
-    const i = idx[col.label.toLowerCase()];
+    const i = indexByKey[col.key];
     lead[col.key] = coerce(col.key, i === undefined ? "" : row[i]);
   }
-
-  // Forced on import.
   lead.leadStatus = "New";
   lead.assignedDscId = "";
-
-  // CRM-only defaults for the fields not in the sheet.
   lead.attemptCount = 0;
   lead.servicesPitched = [];
   lead.servicesInterested = [];
@@ -84,20 +133,19 @@ export function buildLeadFromRow(headers, row) {
   lead.quotedAmount = null;
   lead.closedAmount = null;
   lead.lostReason = "";
-
   return lead;
 }
 
 // Split a phone/email cell that may hold several comma-separated values.
 function parts(value) {
   return String(value || "")
-    .split(",")
+    .split(/[,;/]/)
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
 }
 
 // Does `lead` duplicate any existing lead? Match on Phone OR Email OR
-// (Company + City). Comparison is case-insensitive and handles multi-values.
+// (Company + City). Case-insensitive; handles multi-value phone/email.
 export function isDuplicate(lead, existing) {
   const phones = parts(lead.phone);
   const emails = parts(lead.email);
@@ -121,13 +169,11 @@ export function isDuplicate(lead, existing) {
   });
 }
 
-// Classify parsed rows against the existing leads. Returns one entry per row:
+// Classify parsed rows against the existing leads. One entry per row:
 //   { lead, status: "new" | "duplicate" | "error", reason }
-// A row errors if it has nothing to identify it (no company AND no phone/email),
-// or if its Lead Id collides with a row already seen in this batch.
 export function classifyRows(leads, existing) {
   const seenIds = new Set();
-  const accepted = []; // running list so within-batch dupes are caught too
+  const accepted = [];
   return leads.map((lead) => {
     if (!lead.company && !lead.phone && !lead.email) {
       return { lead, status: "error", reason: "No company, phone, or email" };
@@ -147,4 +193,9 @@ export function classifyRows(leads, existing) {
     accepted.push(lead);
     return { lead, status: "new", reason: "" };
   });
+}
+
+// Is a parsed row entirely empty? (skip blank trailing rows from the sheet)
+export function isBlankRow(row) {
+  return !row || row.every((c) => String(c ?? "").trim() === "");
 }
