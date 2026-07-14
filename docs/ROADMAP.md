@@ -25,14 +25,15 @@ The core screen listing all leads (full 26-column schema) with import + roles.
 - **Files:** `src/app/leads/`, `src/components/leads/`, `src/lib/leadImport.js`,
   `src/data/mockLeads.js`.
 
-### 🔜 2. Statuses — Pipeline / Kanban
+### ✅ 2. Statuses — Pipeline / Kanban
 
-A board view of the pipeline; drag or select to change a lead's status.
+A board view of the pipeline (`/pipeline`): one column per status (pipeline
+order), lead cards showing company / priority / DSC / value / next follow-up.
+Change a lead's status by **dragging** its card between columns **or** the card's
+status select. Role-aware (DSC sees only their own); clicking a card opens the
+shared detail sidebar. Status changes go through `updateLead()`.
 
-- Reuse `getLeads()` + `LEAD_STATUSES` from `src/data/mockLeads.js` (its order
-  gives the board's column order).
-- New: `src/app/pipeline/page.jsx`, `src/components/pipeline/*`.
-- Wire status changes through `updateLead()` (already stubbed in `leadsApi.js`).
+- **Files:** `src/app/pipeline/page.jsx`, `src/components/pipeline/PipelineBoard.jsx`.
 
 ### ⬜ 3. Analytics
 
