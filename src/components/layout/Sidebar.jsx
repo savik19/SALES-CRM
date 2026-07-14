@@ -8,7 +8,7 @@ import { usePathname } from "next/navigation";
 // without pretending they're ready.
 const NAV = [
   { href: "/leads", label: "Lead Table", icon: "📋", soon: false },
-  { href: "/statuses", label: "Pipeline", icon: "🔀", soon: true },
+  { href: "/pipeline", label: "Pipeline", icon: "🔀", soon: false },
   { href: "/analytics", label: "Analytics", icon: "📊", soon: true },
   { href: "/kpis", label: "KPIs", icon: "🎯", soon: true },
   {
