@@ -12,6 +12,12 @@ const NAV = [
   { href: "/analytics", label: "Analytics", icon: "📊", soon: true },
   { href: "/kpis", label: "KPIs", icon: "🎯", soon: true },
   {
+    href: "/settings/users",
+    label: "User Management",
+    icon: "👥",
+    soon: false,
+  },
+  {
     href: "/settings/columns",
     label: "Column Mapping",
     icon: "🧩",

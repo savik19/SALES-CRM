@@ -7,8 +7,8 @@ import {
   INDUSTRIES,
   LOST_REASONS,
   SERVICES,
-  DSCS,
 } from "@/data/mockLeads";
+import { useActiveDscs, useUsers } from "@/lib/usersConfig";
 import { discountPctLabel } from "@/lib/format";
 
 // Field type + options, derived from the column key.
@@ -60,7 +60,7 @@ const WIDE_FIELDS = new Set([
 ]);
 
 // One editable (or read-only) field.
-function Field({ column, lead, canEdit, canAssign, onChange }) {
+function Field({ column, lead, canEdit, canAssign, onChange, dscs }) {
   const key = column.key;
   const cfg = fieldConfig(key);
   const value = lead[key];
@@ -103,7 +103,7 @@ function Field({ column, lead, canEdit, canAssign, onChange }) {
         onChange={(e) => set(e.target.value)}
       >
         <option value="">Unassigned</option>
-        {DSCS.map((d) => (
+        {dscs.map((d) => (
           <option key={d.id} value={d.id}>
             {d.name}
           </option>
@@ -207,6 +207,17 @@ export default function ExpandedLeadRow({
   const canAssign = role === "bdm";
   const sidebar = variant === "sidebar";
 
+  // Assignable DSCs = active DSCs, plus the lead's current assignee if they've
+  // since been deactivated (so the name still renders and isn't silently lost).
+  const activeDscs = useActiveDscs();
+  const { users } = useUsers();
+  const dscs = (() => {
+    if (!lead?.assignedDscId) return activeDscs;
+    if (activeDscs.some((d) => d.id === lead.assignedDscId)) return activeDscs;
+    const current = users.find((u) => u.id === lead.assignedDscId);
+    return current ? [...activeDscs, current] : activeDscs;
+  })();
+
   const gridClass = sidebar
     ? "grid grid-cols-1 gap-x-4 gap-y-3"
     : "grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-3";
@@ -243,6 +254,7 @@ export default function ExpandedLeadRow({
                   canEdit={canEdit}
                   canAssign={canAssign}
                   onChange={onChange}
+                  dscs={dscs}
                 />
               ))}
             </div>

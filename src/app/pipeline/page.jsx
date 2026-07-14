@@ -9,12 +9,12 @@ import LeadDetailSidebar from "@/components/leads/LeadDetailSidebar";
 import { getLeads, updateLead } from "@/lib/leadsApi";
 import {
   USER_BY_ID,
-  DSCS,
   PRIORITIES,
   INDUSTRIES,
   LEAD_SOURCES,
 } from "@/data/mockLeads";
 import { useColumnConfig } from "@/lib/columnConfig";
+import { useActiveDscs, useUsers } from "@/lib/usersConfig";
 import { groupsOf } from "@/components/leads/columns";
 import { matchesDateWindow } from "@/lib/dateFilters";
 
@@ -38,9 +38,20 @@ const SEARCH_KEYS = [
 // status columns — or use the card's status select — to change its status.
 // Role-aware like the Lead Table: a DSC sees only their own leads.
 export default function PipelinePage() {
+  const dscs = useActiveDscs();
+  const { users } = useUsers();
+
   const [viewerId, setViewerId] = useState("u-prakhar");
-  const viewer = USER_BY_ID[viewerId];
+  const viewer = users.find((u) => u.id === viewerId) || USER_BY_ID[viewerId];
   const isManager = viewer?.role === "bdm" || viewer?.role === "admin";
+
+  // Keep the demo viewer valid if the Admin deactivates the current one.
+  useEffect(() => {
+    const active = users.filter((u) => u.status !== "deactivated");
+    if (active.length && !active.some((u) => u.id === viewerId)) {
+      setViewerId(active[0].id);
+    }
+  }, [users, viewerId]);
 
   const { columns } = useColumnConfig();
   const groups = useMemo(() => groupsOf(columns), [columns]);
@@ -105,7 +116,7 @@ export default function PipelinePage() {
     leadSource: LEAD_SOURCES,
     assignedDscId: [
       { value: "", label: "Unassigned" },
-      ...DSCS.map((d) => ({ value: d.id, label: d.name })),
+      ...dscs.map((d) => ({ value: d.id, label: d.name })),
     ],
   };
 

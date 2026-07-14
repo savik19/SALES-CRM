@@ -105,51 +105,45 @@ export const SERVICES = [
 // lead points at a DSC id. `joinedMonthsAgo` drives the training/probation state
 // in the earnings model — a DSC is "in training" while joinedMonthsAgo is under
 // the configured training length.
+// Full user record (managed by the Admin in User Management). `status`:
+//   active     — logged in and working
+//   invited    — invite email sent; not yet set their password / logged in
+//   deactivated — left the company; hidden from assignment/login
 export const ADMIN = {
   id: "u-admin",
   name: "Admin",
   initials: "AD",
   role: "admin",
+  email: "admin@scriptguru.in",
+  mobile: "+91 90000 00000",
+  address: "Harawala, Dehradun, Uttarakhand",
+  city: "Dehradun",
+  salaryMonthly: null,
+  status: "active",
+  joinedMonthsAgo: 30,
 };
 export const BDM = {
   id: "u-prakhar",
-  name: "Prakhar",
-  initials: "PB",
+  name: "Prakhar Agarwal",
+  initials: "PA",
   role: "bdm",
+  email: "prakhar@scriptguru.in",
+  mobile: "+91 90000 11111",
+  address: "Harawala, Dehradun, Uttarakhand",
+  city: "Dehradun",
+  salaryMonthly: 40000,
+  status: "active",
+  joinedMonthsAgo: 24,
 };
 
 export const DSCS = [
-  {
-    id: "u-anaya",
-    name: "Anaya Rao",
-    initials: "AR",
-    role: "dsc",
-    joinedMonthsAgo: 9,
-  },
-  {
-    id: "u-kabir",
-    name: "Kabir Mehta",
-    initials: "KM",
-    role: "dsc",
-    joinedMonthsAgo: 6,
-  },
-  {
-    id: "u-isha",
-    name: "Isha Verma",
-    initials: "IV",
-    role: "dsc",
-    joinedMonthsAgo: 4,
-  },
-  {
-    id: "u-rohan",
-    name: "Rohan Nair",
-    initials: "RN",
-    role: "dsc",
-    joinedMonthsAgo: 1,
-  },
+  { id: "u-anaya", name: "Anaya Rao", initials: "AR", role: "dsc", email: "anaya@scriptguru.in", mobile: "+91 98111 22001", address: "Rajpur Road, Dehradun", city: "Dehradun", salaryMonthly: 25000, status: "active", joinedMonthsAgo: 9 },
+  { id: "u-kabir", name: "Kabir Mehta", initials: "KM", role: "dsc", email: "kabir@scriptguru.in", mobile: "+91 98111 22002", address: "Ballupur, Dehradun", city: "Dehradun", salaryMonthly: 25000, status: "active", joinedMonthsAgo: 6 },
+  { id: "u-isha", name: "Isha Verma", initials: "IV", role: "dsc", email: "isha@scriptguru.in", mobile: "+91 98111 22003", address: "Clement Town, Dehradun", city: "Dehradun", salaryMonthly: 25000, status: "active", joinedMonthsAgo: 4 },
+  { id: "u-rohan", name: "Rohan Nair", initials: "RN", role: "dsc", email: "rohan@scriptguru.in", mobile: "+91 98111 22004", address: "Ajabpur, Dehradun", city: "Dehradun", salaryMonthly: 25000, status: "active", joinedMonthsAgo: 1 },
 ];
 
-// Everyone who can log in (drives the role switcher).
+// Everyone who can log in (seed for the User Management store + role switcher).
 export const TEAM = [ADMIN, BDM, ...DSCS];
 
 export const USER_BY_ID = TEAM.reduce((acc, u) => {
@@ -157,10 +151,22 @@ export const USER_BY_ID = TEAM.reduce((acc, u) => {
   return acc;
 }, {});
 
+// ---- Live user registry (bridge) -------------------------------------------
+// User Management can add/rename/deactivate users at runtime. So name lookups go
+// through a mutable registry that the UserProvider keeps in sync (see
+// src/lib/usersConfig). It defaults to the seed above until the provider mounts.
+let _registry = { ...USER_BY_ID };
+export function registerUsers(list) {
+  _registry = list.reduce((acc, u) => {
+    acc[u.id] = u;
+    return acc;
+  }, {});
+}
+
 // Display helper — friendly name for an assignedDscId ("" -> "Unassigned").
 export function dscName(id) {
   if (!id) return "Unassigned";
-  return USER_BY_ID[id]?.name || "Unassigned";
+  return _registry[id]?.name || USER_BY_ID[id]?.name || "Unassigned";
 }
 
 // ---- The mock leads --------------------------------------------------------

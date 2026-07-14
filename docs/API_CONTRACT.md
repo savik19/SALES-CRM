@@ -67,16 +67,32 @@ or an `Authorization` header.
 > `(quotedAmount − closedAmount) / quotedAmount × 100`. The frontend derives it;
 > do not send it.
 
-### TeamMember (DSC)
+### TeamMember / User
+
+Managed by the Admin on the **User Management** screen. `assignedDscId` on a Lead
+points at `id`. The first four fields are all the Lead Table / analytics need; the
+rest are HR details the Admin captures.
 
 ```jsonc
 {
   "id": "u-anaya", // string, primary key (assignedDscId points here)
   "name": "Anaya Rao",
-  "initials": "AR",
-  "role": "dsc", // "dsc" | "bdm"
+  "initials": "AR", // derived from name; backend may compute or ignore
+  "role": "dsc", // "dsc" | "bdm" | "admin"
+  "email": "anaya@scriptguru.in", // string — unique; the login handle
+  "mobile": "+91 98111 22001", // string, may be ""
+  "address": "Rajpur Road, Dehradun", // string, may be ""
+  "city": "Dehradun", // string, may be ""
+  "salaryMonthly": 25000, // number (Rupees) or null
+  "status": "active", // "invited" | "active" | "deactivated"
+  "joinedMonthsAgo": 9 // number — under Compensation.dsc.trainingMonths ⇒ training pay
 }
 ```
+
+`status` lifecycle: **invited** (added by Admin, invite email sent, no password
+yet) → **active** (has set a password / logged in) → **deactivated** (left; hidden
+from login, assignment, filters and analytics, but kept for history). Only
+non-deactivated users appear in the role switcher and DSC assignment lists.
 
 ---
 
@@ -131,6 +147,25 @@ Commit imported rows. Body `{ "rows": Lead[] }`. Each row must arrive as
 
 ---
 
+### User Management (Admin only)
+
+The Admin adds/edits the team, deactivates leavers, and invites new joiners. The
+frontend calls these through `src/lib/usersConfig.jsx` (currently a mock store —
+swap the bodies for real fetches). Enforce Admin-only server-side.
+
+- `GET /api/users` → `User[]` (whole team incl. deactivated).
+- `POST /api/users` — add a user. Body: a `User` without `id`/`status`. Create
+  with `status: "invited"` and **send the invite email** (magic link / set-password
+  page). **201** → the created `User`.
+- `PUT /api/users/:id` — update HR details. **200** → the updated `User`.
+- `PATCH /api/users/:id/status` — Body `{ "status": "active" | "deactivated" }`.
+  Deactivating must revoke login and remove them from assignment lists. **200** →
+  the updated `User`. (Consider reassigning their open leads on deactivation.)
+- `POST /api/users/:id/invite` — (re)send the invite email. **204**.
+
+The invite → set-password flow (token email, `/set-password?token=…` page, first
+login) is a backend concern; the UI only triggers the send and shows the result.
+
 ## Roles & scoping (Build Brief §4)
 
 - **BDM** — sees all leads; can import, assign/reassign, bulk-assign, edit any field.
@@ -153,11 +188,11 @@ CRM-only and filled in later. Duplicate detection matches on Phone OR Email OR
 
 ## Endpoints to add as those screens are built
 
-| Screen (roadmap)  | Suggested endpoints                                |
-| ----------------- | -------------------------------------------------- |
-| Team / assignment | `GET /api/team` → `TeamMember[]`                   |
-| Auth              | `GET /api/me` → current user (drives role scoping) |
-| Analytics / KPIs  | see `docs/ROADMAP.md`                              |
+| Screen (roadmap)  | Suggested endpoints                                        |
+| ----------------- | ---------------------------------------------------------- |
+| User Management   | `GET/POST /api/users`, `PUT /api/users/:id`, status/invite |
+| Auth              | `GET /api/me` → current user (drives role scoping)         |
+| Analytics / KPIs  | see `docs/ROADMAP.md`                                       |
 
 ---
 

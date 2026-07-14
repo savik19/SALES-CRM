@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { DSCS } from "@/data/mockLeads";
+import { useActiveDscs } from "@/lib/usersConfig";
 
 // Sticky action bar shown (BDM only) when one or more leads are selected.
 // The core post-import workflow: filter to New + Unassigned, select, assign.
 export default function BulkAssignBar({ count, onAssign, onClear }) {
   const [dscId, setDscId] = useState("");
+  const dscs = useActiveDscs();
 
   if (count === 0) return null;
 
@@ -21,7 +22,7 @@ export default function BulkAssignBar({ count, onAssign, onClear }) {
         className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
       >
         <option value="">Assign to…</option>
-        {DSCS.map((d) => (
+        {dscs.map((d) => (
           <option key={d.id} value={d.id}>
             {d.name}
           </option>
