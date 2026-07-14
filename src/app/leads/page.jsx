@@ -20,6 +20,7 @@ import {
   byKey,
 } from "@/components/leads/columns";
 import { useColumnConfig } from "@/lib/columnConfig";
+import { useActiveDscs, useUsers } from "@/lib/usersConfig";
 import { getLeads, updateLead, assignLeads } from "@/lib/leadsApi";
 import { discountPct } from "@/lib/format";
 import {
@@ -27,7 +28,6 @@ import {
   PRIORITIES,
   INDUSTRIES,
   LEAD_SOURCES,
-  DSCS,
   USER_BY_ID,
   dscName,
 } from "@/data/mockLeads";
@@ -123,9 +123,13 @@ function matchesDatePreset(iso, preset) {
 }
 
 export default function LeadsPage() {
+  // ---- Team (managed by Admin in User Management) --------------------------
+  const dscs = useActiveDscs();
+  const { users } = useUsers();
+
   // ---- Role (demo switcher; real auth replaces this) -----------------------
   const [viewerId, setViewerId] = useState("u-prakhar");
-  const viewer = USER_BY_ID[viewerId];
+  const viewer = users.find((u) => u.id === viewerId) || USER_BY_ID[viewerId];
   const isAdmin = viewer?.role === "admin";
   const isBDM = viewer?.role === "bdm";
   // Admin and BDM both see the whole team + can import / (bulk-)assign.
@@ -190,6 +194,15 @@ export default function LeadsPage() {
     });
   }, [colKeys]);
 
+  // If the current demo viewer gets deactivated in User Management, fall back to
+  // the first person who can still log in (mirrors losing portal access).
+  useEffect(() => {
+    const active = users.filter((u) => u.status !== "deactivated");
+    if (active.length && !active.some((u) => u.id === viewerId)) {
+      setViewerId(active[0].id);
+    }
+  }, [users, viewerId]);
+
   // Reset selection/expansion when the viewer (role) changes.
   useEffect(() => {
     setSelectedIds(new Set());
@@ -230,9 +243,9 @@ export default function LeadsPage() {
   const analytics = useMemo(() => {
     if (!viewer) return null;
     return isManager
-      ? { variant: "team", data: teamAnalytics(allLeads, DSCS, config) }
+      ? { variant: "team", data: teamAnalytics(allLeads, dscs, config) }
       : { variant: "dsc", data: dscAnalytics(viewer, allLeads, config) };
-  }, [viewer, isManager, allLeads, config]);
+  }, [viewer, isManager, allLeads, dscs, config]);
 
   const cityOptions = useMemo(
     () =>
@@ -248,7 +261,7 @@ export default function LeadsPage() {
     // "Unassigned" first so the BDM can find freshly imported leads.
     assignedDscId: [
       { value: "", label: "Unassigned" },
-      ...DSCS.map((d) => ({ value: d.id, label: d.name })),
+      ...dscs.map((d) => ({ value: d.id, label: d.name })),
     ],
     leadSource: LEAD_SOURCES,
   };

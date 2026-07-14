@@ -35,6 +35,22 @@ shared detail sidebar. Status changes go through `updateLead()`.
 
 - **Files:** `src/app/pipeline/page.jsx`, `src/components/pipeline/PipelineBoard.jsx`.
 
+### ✅ Admin settings (User Management · Column Mapping · Compensation)
+
+Admin-only screens that configure the CRM (available from the sidebar):
+
+- **User Management** (`/settings/users`) — add BDMs and DSCs with full details
+  (name, role, email, mobile, address, city, salary, join date); headcount cards
+  (total/active DSCs & BDMs, invited, deactivated); deactivate leavers (and
+  reactivate); invite new joiners by email (mock — flips to _Invited_; the real
+  email + set-password flow is a backend TODO). The managed team drives the role
+  switcher, DSC assignment, filters and per-DSC analytics live (via a registry
+  bridge in `mockLeads.js` + `src/lib/usersConfig.jsx`). API: `/api/users*`.
+- **Column Mapping** (`/settings/columns`) — edit column labels/aliases, toggle
+  which appear in the import sheet, add/remove columns.
+- **Compensation** (`/settings/compensation`) — salaries, targets, commission %,
+  training length/amount and deductions; the DSC/BDM analytics read these live.
+
 ### ⬜ 3. Analytics
 
 Charts/summaries over leads — by status, industry, location, value.
