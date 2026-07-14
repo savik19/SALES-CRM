@@ -4,11 +4,35 @@ import { useEffect, useMemo, useState } from "react";
 import Topbar from "@/components/layout/Topbar";
 import RoleSwitcher from "@/components/leads/RoleSwitcher";
 import PipelineBoard from "@/components/pipeline/PipelineBoard";
+import PipelineToolbar from "@/components/pipeline/PipelineToolbar";
 import LeadDetailSidebar from "@/components/leads/LeadDetailSidebar";
 import { getLeads, updateLead } from "@/lib/leadsApi";
-import { USER_BY_ID } from "@/data/mockLeads";
+import {
+  USER_BY_ID,
+  DSCS,
+  PRIORITIES,
+  INDUSTRIES,
+  LEAD_SOURCES,
+} from "@/data/mockLeads";
 import { useColumnConfig } from "@/lib/columnConfig";
 import { groupsOf } from "@/components/leads/columns";
+import { matchesDateWindow } from "@/lib/dateFilters";
+
+const EMPTY_FILTERS = {
+  priority: [],
+  industry: [],
+  city: [],
+  leadSource: [],
+  assignedDscId: [],
+};
+const SEARCH_KEYS = [
+  "company",
+  "contactPerson",
+  "email",
+  "phone",
+  "leadId",
+  "city",
+];
 
 // Pipeline / Kanban board (Build Brief §3 step 2). Drag a lead card between
 // status columns — or use the card's status select — to change its status.
@@ -46,6 +70,66 @@ export default function PipelinePage() {
     [allLeads, isManager, viewerId]
   );
 
+  // ---- Filters -------------------------------------------------------------
+  const [search, setSearch] = useState("");
+  const [followUp, setFollowUp] = useState(""); // overdue | today | week
+  const [activity, setActivity] = useState(""); // last7 | last30 (Last Contact)
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
+
+  function handleFilterChange(key, values) {
+    setFilters((f) => ({ ...f, [key]: values }));
+  }
+  function clearAll() {
+    setSearch("");
+    setFollowUp("");
+    setActivity("");
+    setFilters(EMPTY_FILTERS);
+  }
+
+  // Reset filters when switching role/viewer.
+  useEffect(() => {
+    setSearch("");
+    setFollowUp("");
+    setActivity("");
+    setFilters(EMPTY_FILTERS);
+  }, [viewerId]);
+
+  const cityOptions = useMemo(
+    () => Array.from(new Set(scoped.map((l) => l.city).filter(Boolean))).sort(),
+    [scoped]
+  );
+  const filterOptions = {
+    priority: PRIORITIES,
+    industry: INDUSTRIES,
+    city: cityOptions,
+    leadSource: LEAD_SOURCES,
+    assignedDscId: [
+      { value: "", label: "Unassigned" },
+      ...DSCS.map((d) => ({ value: d.id, label: d.name })),
+    ],
+  };
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return scoped.filter((lead) => {
+      for (const key of Object.keys(EMPTY_FILTERS)) {
+        const sel = filters[key];
+        if (sel.length > 0 && !sel.includes(lead[key])) return false;
+      }
+      if (followUp && !matchesDateWindow(lead.nextFollowUpDate, followUp))
+        return false;
+      if (activity && !matchesDateWindow(lead.lastContactDate, activity))
+        return false;
+      if (q) {
+        const hay = SEARCH_KEYS.map((k) => lead[k])
+          .join(" ")
+          .toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [scoped, search, followUp, activity, filters]);
+
   function handleMove(leadId, status) {
     setAllLeads((rows) =>
       rows.map((l) => (l.leadId === leadId ? { ...l, leadStatus: status } : l))
@@ -76,6 +160,25 @@ export default function PipelinePage() {
         right={<RoleSwitcher viewerId={viewerId} onChange={setViewerId} />}
       />
 
+      {!loading ? (
+        <PipelineToolbar
+          scoped={scoped}
+          count={filtered.length}
+          total={scoped.length}
+          search={search}
+          onSearch={setSearch}
+          followUp={followUp}
+          onFollowUp={setFollowUp}
+          activity={activity}
+          onActivity={setActivity}
+          filters={filters}
+          onFilterChange={handleFilterChange}
+          options={filterOptions}
+          showDscFilter={isManager}
+          onClearAll={clearAll}
+        />
+      ) : null}
+
       <div className="flex-1 overflow-hidden">
         {loading ? (
           <div className="px-6 py-20 text-center text-sm text-slate-500">
@@ -83,7 +186,7 @@ export default function PipelinePage() {
           </div>
         ) : (
           <PipelineBoard
-            leads={scoped}
+            leads={filtered}
             onMove={handleMove}
             onOpen={setDetailLead}
           />
