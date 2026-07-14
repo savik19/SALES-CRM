@@ -49,7 +49,9 @@ function CountCard({ label, value, tone = "slate", sub }) {
       <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
         {label}
       </div>
-      <div className={`mt-1 text-2xl font-semibold ${tones[tone]}`}>{value}</div>
+      <div className={`mt-1 text-2xl font-semibold ${tones[tone]}`}>
+        {value}
+      </div>
       {sub ? <div className="mt-0.5 text-xs text-slate-400">{sub}</div> : null}
     </div>
   );
@@ -133,7 +135,12 @@ export default function UsersPage() {
             tone="brand"
             sub={`${counts.bdmActive} active`}
           />
-          <CountCard label="Invited" value={counts.invited} tone="amber" sub="Not yet logged in" />
+          <CountCard
+            label="Invited"
+            value={counts.invited}
+            tone="amber"
+            sub="Not yet logged in"
+          />
           <CountCard
             label="Deactivated"
             value={counts.deactivated}
@@ -193,7 +200,10 @@ export default function UsersPage() {
               <tbody className="divide-y divide-slate-100">
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-10 text-center text-slate-400">
+                    <td
+                      colSpan={7}
+                      className="px-4 py-10 text-center text-slate-400"
+                    >
                       No users match this filter.
                     </td>
                   </tr>
@@ -221,10 +231,14 @@ export default function UsersPage() {
                         <td className="px-4 py-3 text-slate-600">
                           <div>{u.email}</div>
                           {u.mobile ? (
-                            <div className="text-xs text-slate-400">{u.mobile}</div>
+                            <div className="text-xs text-slate-400">
+                              {u.mobile}
+                            </div>
                           ) : null}
                         </td>
-                        <td className="px-4 py-3 text-slate-600">{u.city || "—"}</td>
+                        <td className="px-4 py-3 text-slate-600">
+                          {u.city || "—"}
+                        </td>
                         <td className="px-4 py-3 text-slate-600">
                           {fmtSalary(u.salaryMonthly)}
                         </td>

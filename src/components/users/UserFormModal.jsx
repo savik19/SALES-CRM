@@ -14,13 +14,22 @@ function isValidEmail(v) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 }
 
-export default function UserFormModal({ open, mode, user, existing, onSave, onClose }) {
+export default function UserFormModal({
+  open,
+  mode,
+  user,
+  existing,
+  onSave,
+  onClose,
+}) {
   const [draft, setDraft] = useState(blankUser());
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (open) {
-      setDraft(mode === "edit" && user ? { ...blankUser(), ...user } : blankUser());
+      setDraft(
+        mode === "edit" && user ? { ...blankUser(), ...user } : blankUser()
+      );
       setError("");
     }
   }, [open, mode, user]);
@@ -34,7 +43,8 @@ export default function UserFormModal({ open, mode, user, existing, onSave, onCl
   function submit() {
     const name = draft.name.trim();
     if (!name) return setError("Name is required.");
-    if (!isValidEmail(draft.email)) return setError("A valid email is required.");
+    if (!isValidEmail(draft.email))
+      return setError("A valid email is required.");
     // Email must be unique (it's the login handle) — ignore the row being edited.
     const dupe = (existing || []).some(
       (u) =>
@@ -152,19 +162,21 @@ export default function UserFormModal({ open, mode, user, existing, onSave, onCl
               className={inputClass}
               value={draft.joinedMonthsAgo ?? 0}
               onChange={(e) =>
-                set("joinedMonthsAgo", e.target.value === "" ? 0 : Number(e.target.value))
+                set(
+                  "joinedMonthsAgo",
+                  e.target.value === "" ? 0 : Number(e.target.value)
+                )
               }
               placeholder="0"
             />
             <p className="mt-0.5 text-xs text-slate-400">
-              Under the training window (Compensation) counts as in-training pay.
+              Under the training window (Compensation) counts as in-training
+              pay.
             </p>
           </div>
         </div>
 
-        {error ? (
-          <p className="px-6 text-sm text-red-600">{error}</p>
-        ) : null}
+        {error ? <p className="px-6 text-sm text-red-600">{error}</p> : null}
 
         <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-6 py-4">
           <p className="text-xs text-slate-400">

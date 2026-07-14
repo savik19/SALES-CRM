@@ -147,7 +147,9 @@ export function UsersProvider({ children }) {
       // and records that a link went out. Real send happens on the backend.
       // TODO(backend): POST /api/users/:id/invite → sends the email + magic link.
       resendInvite(id) {
-        persist(users.map((u) => (u.id === id ? { ...u, status: "invited" } : u)));
+        persist(
+          users.map((u) => (u.id === id ? { ...u, status: "invited" } : u))
+        );
       },
 
       resetToSeed() {
@@ -195,13 +197,11 @@ export function useUserCounts() {
       ).length;
     return {
       dscTotal: count("dsc"),
-      dscActive: users.filter(
-        (u) => u.role === "dsc" && u.status === "active"
-      ).length,
+      dscActive: users.filter((u) => u.role === "dsc" && u.status === "active")
+        .length,
       bdmTotal: count("bdm"),
-      bdmActive: users.filter(
-        (u) => u.role === "bdm" && u.status === "active"
-      ).length,
+      bdmActive: users.filter((u) => u.role === "bdm" && u.status === "active")
+        .length,
       invited: users.filter((u) => u.status === "invited").length,
       deactivated: users.filter((u) => u.status === "deactivated").length,
     };

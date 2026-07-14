@@ -85,7 +85,7 @@ rest are HR details the Admin captures.
   "city": "Dehradun", // string, may be ""
   "salaryMonthly": 25000, // number (Rupees) or null
   "status": "active", // "invited" | "active" | "deactivated"
-  "joinedMonthsAgo": 9 // number — under Compensation.dsc.trainingMonths ⇒ training pay
+  "joinedMonthsAgo": 9, // number — under Compensation.dsc.trainingMonths ⇒ training pay
 }
 ```
 
@@ -188,11 +188,11 @@ CRM-only and filled in later. Duplicate detection matches on Phone OR Email OR
 
 ## Endpoints to add as those screens are built
 
-| Screen (roadmap)  | Suggested endpoints                                        |
-| ----------------- | ---------------------------------------------------------- |
-| User Management   | `GET/POST /api/users`, `PUT /api/users/:id`, status/invite |
-| Auth              | `GET /api/me` → current user (drives role scoping)         |
-| Analytics / KPIs  | see `docs/ROADMAP.md`                                       |
+| Screen (roadmap) | Suggested endpoints                                        |
+| ---------------- | ---------------------------------------------------------- |
+| User Management  | `GET/POST /api/users`, `PUT /api/users/:id`, status/invite |
+| Auth             | `GET /api/me` → current user (drives role scoping)         |
+| Analytics / KPIs | see `docs/ROADMAP.md`                                      |
 
 ---
 
