@@ -12,9 +12,6 @@ import { fieldsForRole, FIELD_META } from "@/lib/compConfig";
 // which the Compensation screen stores under config.overrides[userId].
 // ---------------------------------------------------------------------------
 
-const inputClass =
-  "w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand disabled:bg-slate-100 disabled:text-slate-400";
-
 export default function PersonCompModal({
   open,
   user,
@@ -63,7 +60,7 @@ export default function PersonCompModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-xl bg-white shadow-xl">
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <div>
             <h2 className="text-base font-semibold text-slate-900">
@@ -91,9 +88,9 @@ export default function PersonCompModal({
             return (
               <div
                 key={f}
-                className="flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-2"
+                className="flex items-center gap-3 rounded-lg border border-slate-200 px-4 py-3"
               >
-                <label className="flex flex-1 items-center gap-2">
+                <label className="flex flex-1 items-center gap-2.5">
                   <input
                     type="checkbox"
                     checked={on}
@@ -102,7 +99,7 @@ export default function PersonCompModal({
                   />
                   <span className="text-sm text-slate-700">{meta.label}</span>
                 </label>
-                <div className="flex w-40 items-center gap-2">
+                <div className="flex items-center gap-2">
                   <input
                     type="number"
                     disabled={!on}
@@ -113,18 +110,18 @@ export default function PersonCompModal({
                         [f]: e.target.value === "" ? 0 : Number(e.target.value),
                       }))
                     }
-                    className={inputClass}
+                    className={`w-32 rounded-md border border-slate-300 bg-white px-3 py-2 text-right text-sm tabular-nums text-slate-800 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand disabled:bg-slate-100 disabled:text-slate-400`}
                   />
-                  <span className="w-20 shrink-0 text-xs text-slate-400">
+                  <span className="w-24 shrink-0 text-xs text-slate-400">
                     {meta.suffix}
                   </span>
                 </div>
                 {!on ? (
-                  <span className="hidden w-24 shrink-0 text-right text-xs text-slate-400 sm:inline">
+                  <span className="hidden w-28 shrink-0 text-right text-xs text-slate-400 sm:inline">
                     default {roleDefault[f]}
                   </span>
                 ) : (
-                  <span className="hidden w-24 shrink-0 text-right text-xs font-medium text-brand-700 sm:inline">
+                  <span className="hidden w-28 shrink-0 text-right text-xs font-medium text-brand-700 sm:inline">
                     custom
                   </span>
                 )}
