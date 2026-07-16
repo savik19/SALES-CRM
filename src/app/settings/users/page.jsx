@@ -171,24 +171,18 @@ export default function UsersPage() {
   const counts = useUserCounts();
 
   const [modal, setModal] = useState({ open: false, mode: "add", user: null });
-  const [roleFilter, setRoleFilter] = useState("all"); // all | bdm | dsc
-  const [showDeactivated, setShowDeactivated] = useState(false);
+  const [roleFilter, setRoleFilter] = useState("all"); // all | dsc | bdm | admin
+  const [statusFilter, setStatusFilter] = useState("all"); // all | added | invited | active | deactivated
   const [flash, setFlash] = useState("");
 
   const rows = useMemo(() => {
     return users
-      .filter((u) => u.role !== "admin") // the admin manages the team, not itself
       .filter((u) => (roleFilter === "all" ? true : u.role === roleFilter))
-      .filter((u) => (showDeactivated ? true : u.status !== "deactivated"))
+      .filter((u) =>
+        statusFilter === "all" ? true : u.status === statusFilter
+      )
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [users, roleFilter, showDeactivated]);
-
-  const deactivatedCount = useMemo(
-    () =>
-      users.filter((u) => u.role !== "admin" && u.status === "deactivated")
-        .length,
-    [users]
-  );
+  }, [users, roleFilter, statusFilter]);
 
   function notify(msg) {
     setFlash(msg);
@@ -313,37 +307,42 @@ export default function UsersPage() {
           />
         </div>
 
-        {/* Filters */}
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex overflow-hidden rounded-lg border border-slate-300">
-            {[
-              { key: "all", label: "All" },
-              { key: "bdm", label: "BDMs" },
-              { key: "dsc", label: "DSCs" },
-            ].map((t) => (
-              <button
-                key={t.key}
-                type="button"
-                onClick={() => setRoleFilter(t.key)}
-                className={`px-3 py-1.5 text-sm transition-colors ${
-                  roleFilter === t.key
-                    ? "bg-brand text-white"
-                    : "bg-white text-slate-700 hover:bg-slate-50"
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-          <label className="ml-1 inline-flex items-center gap-2 text-sm text-slate-600">
-            <input
-              type="checkbox"
-              checked={showDeactivated}
-              onChange={(e) => setShowDeactivated(e.target.checked)}
-              className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
-            />
-            Show deactivated{deactivatedCount ? ` (${deactivatedCount})` : ""}
+        {/* Filters — by role and by account status */}
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="inline-flex items-center gap-2 text-sm text-slate-600">
+            <span className="text-xs font-medium uppercase tracking-wide text-slate-400">
+              Role
+            </span>
+            <select
+              value={roleFilter}
+              onChange={(e) => setRoleFilter(e.target.value)}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+            >
+              <option value="all">All roles</option>
+              <option value="dsc">DSC</option>
+              <option value="bdm">BDM</option>
+              <option value="admin">Admin</option>
+            </select>
           </label>
+          <label className="inline-flex items-center gap-2 text-sm text-slate-600">
+            <span className="text-xs font-medium uppercase tracking-wide text-slate-400">
+              Status
+            </span>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+            >
+              <option value="all">All statuses</option>
+              <option value="added">Added</option>
+              <option value="invited">Invited</option>
+              <option value="active">Active</option>
+              <option value="deactivated">Deactivated</option>
+            </select>
+          </label>
+          <span className="ml-auto text-sm text-slate-500">
+            {rows.length} {rows.length === 1 ? "user" : "users"}
+          </span>
         </div>
 
         {/* Team table — headers stay on one line; scroll right for more columns.

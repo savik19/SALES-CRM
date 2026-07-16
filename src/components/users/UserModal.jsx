@@ -8,14 +8,18 @@ import { formatDate, employmentDuration } from "@/lib/format";
 // ---------------------------------------------------------------------------
 // User detail modal — one component, three modes:
 //   "add"  — empty editable form; ADDS the user (no invite yet — that's a
-//            separate action from the table). All fields are mandatory.
+//            separate action from the table). All fields are mandatory (marked
+//            with a red *); empty/invalid fields are outlined red on submit.
 //   "view" — read-only details for everyone to see; an Edit button switches to…
 //   "edit" — the same fields become editable inputs; Save persists.
-// The company domain + country (dial) code shape a new hire's work email/phone.
+// The country (dial) code prefixes new phone numbers; the company email is
+// auto-derived from the name on add.
 // ---------------------------------------------------------------------------
 
-const inputClass =
-  "w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand";
+const baseInput =
+  "w-full rounded-md border bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-1";
+const okInput = "border-slate-300 focus:border-brand focus:ring-brand";
+const badInput = "border-red-400 ring-1 ring-red-200 focus:border-red-500";
 const labelClass = "mb-1 block text-xs font-medium text-slate-500";
 
 function isValidEmail(v) {
@@ -38,11 +42,16 @@ function splitMulti(v) {
     .filter(Boolean);
 }
 
-// A labelled field: renders an input in edit mode, or plain text in view mode.
-function Field({ label, value, editing, children, hint, full }) {
+// A labelled field: input in edit mode, plain text in view mode.
+function Field({ label, value, editing, required, children, hint, full }) {
   return (
     <div className={full ? "sm:col-span-2" : ""}>
-      <label className={labelClass}>{label}</label>
+      <label className={labelClass}>
+        {label}
+        {editing && required ? (
+          <span className="ml-0.5 text-red-500">*</span>
+        ) : null}
+      </label>
       {editing ? (
         children
       ) : (
@@ -79,17 +88,17 @@ export default function UserModal({
   const [mode, setMode] = useState(initialMode); // add | view | edit
   const [draft, setDraft] = useState(blankUser());
   const [error, setError] = useState("");
-  // Whether the Admin has hand-edited the company email (stops auto-derive).
+  const [invalid, setInvalid] = useState(() => new Set());
   const emailTouched = useRef(false);
 
   useEffect(() => {
     if (!open) return;
     setMode(initialMode);
     setError("");
+    setInvalid(new Set());
     emailTouched.current = false;
     if (initialMode === "add" || !user) {
       const base = blankUser();
-      // Country code seeds the phone fields so new numbers inherit the format.
       base.companyPhone = `${base.dialCode} `;
       base.personalPhone = `${base.dialCode} `;
       setDraft(base);
@@ -102,9 +111,21 @@ export default function UserModal({
 
   const editing = mode === "add" || mode === "edit";
   const isAdd = mode === "add";
-  const set = (key, value) => setDraft((d) => ({ ...d, [key]: value }));
 
-  // Name → auto-derive the company email (add mode, until the Admin edits it).
+  function clearInvalid(...keys) {
+    setInvalid((prev) => {
+      if (!keys.some((k) => prev.has(k))) return prev;
+      const n = new Set(prev);
+      keys.forEach((k) => n.delete(k));
+      return n;
+    });
+  }
+  const set = (key, value) => {
+    setDraft((d) => ({ ...d, [key]: value }));
+    clearInvalid(key);
+  };
+  const cls = (key) => `${baseInput} ${invalid.has(key) ? badInput : okInput}`;
+
   function onNameChange(name) {
     setDraft((d) => {
       const next = { ...d, name };
@@ -114,55 +135,54 @@ export default function UserModal({
       }
       return next;
     });
-  }
-  // Domain change re-derives the company email too (add mode, untouched).
-  function onDomainChange(companyDomain) {
-    setDraft((d) => {
-      const next = { ...d, companyDomain };
-      if (isAdd && !emailTouched.current) {
-        const slug = emailSlug(d.name);
-        next.companyEmail = slug ? `${slug}@${companyDomain}` : "";
-      }
-      return next;
-    });
+    clearInvalid("name", "companyEmail");
   }
 
-  // Full mandatory validation on ADD; lighter on EDIT (so partially-filled
-  // legacy records can still be edited). Returns an error message or null.
+  // Returns the set of invalid required fields + a message for the first issue.
   function validate() {
-    if (!draft.name.trim()) return "Full name is required.";
-    if (!isValidEmail(draft.companyEmail))
-      return "A valid company email is required (it's the login).";
-    const dupe = (existing || []).some(
-      (u) =>
-        u.id !== draft.id &&
-        (u.companyEmail || "").trim().toLowerCase() ===
-          draft.companyEmail.trim().toLowerCase()
-    );
-    if (dupe) return "That company email is already used by another user.";
+    const bad = new Set();
+    const add = (k) => bad.add(k);
 
-    if (isAdd) {
-      if (!draft.personalEmail.trim()) return "Personal email is required.";
-      const badEmail = splitMulti(draft.personalEmail).find(
-        (e) => !isValidEmail(e)
+    if (!draft.name.trim()) add("name");
+    if (!isValidEmail(draft.companyEmail)) add("companyEmail");
+    if (
+      !draft.personalEmail.trim() ||
+      splitMulti(draft.personalEmail).some((e) => !isValidEmail(e))
+    )
+      add("personalEmail");
+    if (digitCount(draft.companyPhone) < 7) add("companyPhone");
+    if (digitCount(draft.personalPhone) < 7) add("personalPhone");
+    if (!draft.address.trim()) add("address");
+    if (!draft.city.trim()) add("city");
+    if (!draft.joiningDate) add("joiningDate");
+    if (draft.salaryMonthly === null || Number(draft.salaryMonthly) <= 0)
+      add("salaryMonthly");
+
+    // Company email must be unique (even if otherwise valid).
+    const dupe =
+      isValidEmail(draft.companyEmail) &&
+      (existing || []).some(
+        (u) =>
+          u.id !== draft.id &&
+          (u.companyEmail || "").trim().toLowerCase() ===
+            draft.companyEmail.trim().toLowerCase()
       );
-      if (badEmail) return `"${badEmail}" is not a valid personal email.`;
-      if (digitCount(draft.companyPhone) < 7)
-        return "A valid company phone is required.";
-      if (digitCount(draft.personalPhone) < 7)
-        return "A valid personal phone is required.";
-      if (!draft.address.trim()) return "Address is required.";
-      if (!draft.city.trim()) return "City is required.";
-      if (!draft.joiningDate) return "Joining date is required.";
-      if (draft.salaryMonthly === null || Number(draft.salaryMonthly) <= 0)
-        return "Monthly salary is required.";
-    }
-    return null;
+    if (dupe) add("companyEmail");
+
+    let msg = "";
+    if (dupe) msg = "That company email is already used by another user.";
+    else if (bad.size)
+      msg = "Please fill the required fields highlighted in red.";
+    return { bad, msg };
   }
 
   function submit() {
-    const msg = validate();
-    if (msg) return setError(msg);
+    const { bad, msg } = validate();
+    if (bad.size) {
+      setInvalid(bad);
+      setError(msg);
+      return;
+    }
     onSave({
       ...draft,
       name: draft.name.trim(),
@@ -219,9 +239,14 @@ export default function UserModal({
 
         <div className="space-y-5 px-6 py-5">
           <Group title="Identity">
-            <Field label="Full name" value={draft.name} editing={editing}>
+            <Field
+              label="Full name"
+              value={draft.name}
+              editing={editing}
+              required
+            >
               <input
-                className={inputClass}
+                className={cls("name")}
                 value={draft.name}
                 onChange={(e) => onNameChange(e.target.value)}
                 placeholder="e.g. Anaya Rao"
@@ -233,7 +258,7 @@ export default function UserModal({
               editing={editing}
             >
               <select
-                className={inputClass}
+                className={cls("role")}
                 value={draft.role}
                 onChange={(e) => set("role", e.target.value)}
               >
@@ -245,44 +270,15 @@ export default function UserModal({
           </Group>
 
           <Group title="Contact">
-            {editing ? (
-              <>
-                <Field
-                  label="Company domain"
-                  value={draft.companyDomain}
-                  editing
-                  hint="Shapes the company email (name@domain)"
-                >
-                  <input
-                    className={inputClass}
-                    value={draft.companyDomain}
-                    onChange={(e) => onDomainChange(e.target.value)}
-                    placeholder="scriptguru.in"
-                  />
-                </Field>
-                <Field
-                  label="Country code"
-                  value={draft.dialCode}
-                  editing
-                  hint="Prefixes new phone numbers"
-                >
-                  <input
-                    className={inputClass}
-                    value={draft.dialCode}
-                    onChange={(e) => set("dialCode", e.target.value)}
-                    placeholder="+91"
-                  />
-                </Field>
-              </>
-            ) : null}
             <Field
               label="Company email (login)"
               value={draft.companyEmail}
               editing={editing}
+              required
             >
               <input
                 type="email"
-                className={inputClass}
+                className={cls("companyEmail")}
                 value={draft.companyEmail}
                 onChange={(e) => {
                   emailTouched.current = true;
@@ -295,22 +291,38 @@ export default function UserModal({
               label="Personal email"
               value={draft.personalEmail}
               editing={editing}
+              required
               hint="Multiple allowed — separate with commas"
             >
               <input
-                className={inputClass}
+                className={cls("personalEmail")}
                 value={draft.personalEmail}
                 onChange={(e) => set("personalEmail", e.target.value)}
                 placeholder="name@gmail.com, alt@outlook.com"
               />
             </Field>
             <Field
+              label="Country code"
+              value={draft.dialCode}
+              editing={editing}
+              hint="Prefixes new phone numbers"
+            >
+              <input
+                className={cls("dialCode")}
+                value={draft.dialCode}
+                onChange={(e) => set("dialCode", e.target.value)}
+                placeholder="+91"
+              />
+            </Field>
+            <div className="hidden sm:block" />
+            <Field
               label="Company phone"
               value={draft.companyPhone}
               editing={editing}
+              required
             >
               <input
-                className={inputClass}
+                className={cls("companyPhone")}
                 value={draft.companyPhone}
                 onChange={(e) => set("companyPhone", e.target.value)}
                 placeholder="+91 98xxx xxxxx"
@@ -320,26 +332,33 @@ export default function UserModal({
               label="Personal phone"
               value={draft.personalPhone}
               editing={editing}
+              required
               hint="Multiple allowed — separate with commas"
             >
               <input
-                className={inputClass}
+                className={cls("personalPhone")}
                 value={draft.personalPhone}
                 onChange={(e) => set("personalPhone", e.target.value)}
                 placeholder="+91 90000 00000, +91 80000 00000"
               />
             </Field>
-            <Field label="Address" value={draft.address} editing={editing} full>
+            <Field
+              label="Address"
+              value={draft.address}
+              editing={editing}
+              required
+              full
+            >
               <input
-                className={inputClass}
+                className={cls("address")}
                 value={draft.address}
                 onChange={(e) => set("address", e.target.value)}
                 placeholder="Street, area"
               />
             </Field>
-            <Field label="City" value={draft.city} editing={editing}>
+            <Field label="City" value={draft.city} editing={editing} required>
               <input
-                className={inputClass}
+                className={cls("city")}
                 value={draft.city}
                 onChange={(e) => set("city", e.target.value)}
                 placeholder="Dehradun"
@@ -354,7 +373,7 @@ export default function UserModal({
               editing={editing}
             >
               <select
-                className={inputClass}
+                className={cls("employmentStatus")}
                 value={draft.employmentStatus}
                 onChange={(e) => set("employmentStatus", e.target.value)}
               >
@@ -369,10 +388,11 @@ export default function UserModal({
               label="Joining date"
               value={formatDate(draft.joiningDate)}
               editing={editing}
+              required
             >
               <input
                 type="date"
-                className={inputClass}
+                className={cls("joiningDate")}
                 value={draft.joiningDate || ""}
                 onChange={(e) => set("joiningDate", e.target.value)}
               />
@@ -391,11 +411,12 @@ export default function UserModal({
                   : `₹${Number(draft.salaryMonthly).toLocaleString("en-IN")}`
               }
               editing={editing}
+              required
               hint="Becomes the post-training base salary in Compensation"
             >
               <input
                 type="number"
-                className={inputClass}
+                className={cls("salaryMonthly")}
                 value={draft.salaryMonthly ?? ""}
                 onChange={(e) =>
                   set(
@@ -411,32 +432,23 @@ export default function UserModal({
 
         {error ? <p className="px-6 text-sm text-red-600">{error}</p> : null}
 
-        <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-6 py-4">
-          <p className="text-xs text-slate-400">
-            {mode === "add"
-              ? "All fields required. The user is added to the directory — send the invite separately from the table."
-              : mode === "edit"
-                ? "Editable fields are enabled. Duration is calculated from the joining date."
-                : "Read-only. Press Edit to change these details."}
-          </p>
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-6 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="whitespace-nowrap rounded-lg border border-slate-300 px-4 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            {mode === "view" ? "Close" : "Cancel"}
+          </button>
+          {editing ? (
             <button
               type="button"
-              onClick={onClose}
-              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              onClick={submit}
+              className="whitespace-nowrap rounded-lg bg-brand px-5 py-1.5 text-sm font-medium text-white hover:bg-brand-700"
             >
-              {mode === "view" ? "Close" : "Cancel"}
+              {mode === "add" ? "Add user" : "Save changes"}
             </button>
-            {editing ? (
-              <button
-                type="button"
-                onClick={submit}
-                className="rounded-lg bg-brand px-4 py-1.5 text-sm font-medium text-white hover:bg-brand-700"
-              >
-                {mode === "add" ? "Add user" : "Save changes"}
-              </button>
-            ) : null}
-          </div>
+          ) : null}
         </div>
       </div>
     </div>
