@@ -9,8 +9,7 @@ import { usePathname } from "next/navigation";
 const NAV = [
   { href: "/leads", label: "Lead Table", icon: "📋", soon: false },
   { href: "/pipeline", label: "Pipeline", icon: "🔀", soon: false },
-  { href: "/analytics", label: "Analytics", icon: "📊", soon: true },
-  { href: "/kpis", label: "KPIs", icon: "🎯", soon: true },
+  // Analytics + KPIs are planned for a later phase — hidden from the nav for now.
   {
     href: "/settings/users",
     label: "User Management",
