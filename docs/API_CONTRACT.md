@@ -166,6 +166,52 @@ swap the bodies for real fetches). Enforce Admin-only server-side.
 The invite → set-password flow (token email, `/set-password?token=…` page, first
 login) is a backend concern; the UI only triggers the send and shows the result.
 
+### Compensation & Targets (Admin only)
+
+Salaries, targets, commission %, training and deductions. Two layers: **role
+defaults** (`bdm`, `dsc`) that apply to everyone in a role, and **per-person
+overrides** (`overrides[userId]`) — a partial package that wins only for the
+fields it sets. The frontend reads/writes this through `src/lib/compConfig.jsx`
+and resolves a person's effective package with `resolvePersonComp()` in
+`src/lib/analytics.js` (`{ ...roleDefault, ...override }`). The DSC/BDM analytics
+read the effective package, so an edit to a default or one person's override
+reflects immediately.
+
+```jsonc
+{
+  "currency": "INR",
+  "deductionPct": 10, // statutory deduction applied to gross → net
+  "bdm": {
+    "salaryMonthly": 40000, // Fixed part + performance pay
+    "fixedPortionPct": 75, // fixed always paid; the rest is target-gated
+    "commissionPct": 5, // % of whole-team sales, if company target met
+    "monthlyLeadTarget": 20, // company: closed leads / month
+  },
+  "dsc": {
+    "baseSalaryMonthly": 25000, // post-training total
+    "trainingSalaryMonthly": 15000, // flat pay during training
+    "trainingMonths": 2, // joinedMonthsAgo < this ⇒ in training
+    "fixedPortionPct": 75,
+    "commissionPct": 3, // % of own sales, if own target met
+    "monthlyLeadTarget": 5, // each DSC: closed leads / month
+  },
+  // Per-person overrides — only the keys present override that role default.
+  "overrides": {
+    "u-anaya": { "commissionPct": 10 }, // e.g. a DSC on a custom package
+  },
+}
+```
+
+Earnings rule (see `personEarnings`): the Fixed portion is always paid; the
+Performance Pay **and** commission are paid ONLY when the person meets their
+monthly target (`closed ≥ target`). A DSC within the training window gets the flat
+training salary instead. Deductions apply to gross to get net take-home.
+
+- `GET /api/compensation` → the config above.
+- `PUT /api/compensation` — save the whole config (defaults + overrides). **200**.
+- (Optional granular) `PUT /api/compensation/overrides/:userId` /
+  `DELETE …/:userId` to set/clear one person's override.
+
 ## Roles & scoping (Build Brief §4)
 
 - **BDM** — sees all leads; can import, assign/reassign, bulk-assign, edit any field.
@@ -188,11 +234,12 @@ CRM-only and filled in later. Duplicate detection matches on Phone OR Email OR
 
 ## Endpoints to add as those screens are built
 
-| Screen (roadmap) | Suggested endpoints                                        |
-| ---------------- | ---------------------------------------------------------- |
-| User Management  | `GET/POST /api/users`, `PUT /api/users/:id`, status/invite |
-| Auth             | `GET /api/me` → current user (drives role scoping)         |
-| Analytics / KPIs | see `docs/ROADMAP.md`                                      |
+| Screen (roadmap) | Suggested endpoints                                           |
+| ---------------- | ------------------------------------------------------------- |
+| User Management  | `GET/POST /api/users`, `PUT /api/users/:id`, status/invite    |
+| Compensation     | `GET/PUT /api/compensation` (defaults + per-person overrides) |
+| Auth             | `GET /api/me` → current user (drives role scoping)            |
+| Analytics / KPIs | see `docs/ROADMAP.md`                                         |
 
 ---
 
