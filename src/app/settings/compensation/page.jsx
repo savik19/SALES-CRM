@@ -2,12 +2,20 @@
 
 import { useEffect, useState } from "react";
 import Topbar from "@/components/layout/Topbar";
+import PersonCompTable from "@/components/settings/PersonCompTable";
+import PersonCompModal from "@/components/settings/PersonCompModal";
 import { useCompConfig } from "@/lib/compConfig";
+import { useUsers } from "@/lib/usersConfig";
 
 // ---------------------------------------------------------------------------
-// Compensation & Targets (Admin) — manage salaries, targets, commission %,
-// training length/amount, and deductions. Every value is editable; DSC and BDM
-// analytics read these, so a change here reflects in their portals on Update.
+// Compensation & Targets (Admin).
+// ---------------------------------------------------------------------------
+// Two layers, edited here and read live by the DSC/BDM analytics:
+//   1. Company defaults — the package for everyone in a role.
+//   2. Per-person overrides — a custom package for one individual (e.g. a DSC
+//      onboarded on a different budget or target).
+// Edits are staged in a draft and committed with Update, so the whole config
+// (defaults + overrides) is saved atomically.
 // ---------------------------------------------------------------------------
 
 const inputClass =
@@ -29,7 +37,7 @@ function NumberField({ label, value, onChange, suffix, help }) {
           }
         />
         {suffix ? (
-          <span className="text-xs text-slate-400">{suffix}</span>
+          <span className="shrink-0 text-xs text-slate-400">{suffix}</span>
         ) : null}
       </div>
       {help ? <p className="mt-0.5 text-xs text-slate-400">{help}</p> : null}
@@ -37,21 +45,34 @@ function NumberField({ label, value, onChange, suffix, help }) {
   );
 }
 
-function Section({ title, children }) {
+function Section({ title, subtitle, children }) {
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-4">
-      <h3 className="mb-3 text-sm font-semibold text-slate-800">{title}</h3>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {children}
+      <div className="mb-3">
+        <h3 className="text-sm font-semibold text-slate-800">{title}</h3>
+        {subtitle ? (
+          <p className="mt-0.5 text-xs text-slate-400">{subtitle}</p>
+        ) : null}
       </div>
+      {children}
     </section>
+  );
+}
+
+function Grid({ children }) {
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {children}
+    </div>
   );
 }
 
 export default function CompensationPage() {
   const { config, save, resetToDefault } = useCompConfig();
+  const { users } = useUsers();
   const [draft, setDraft] = useState(config);
   const [saved, setSaved] = useState(false);
+  const [editUser, setEditUser] = useState(null);
 
   useEffect(() => setDraft(config), [config]);
   const dirty = JSON.stringify(draft) !== JSON.stringify(config);
@@ -68,11 +89,25 @@ export default function CompensationPage() {
     });
   }
 
+  // Store (or clear) one person's override in the draft.
+  function setOverride(userId, overrideOrNull) {
+    setSaved(false);
+    setDraft((d) => {
+      const next = JSON.parse(JSON.stringify(d));
+      next.overrides = next.overrides || {};
+      if (overrideOrNull) next.overrides[userId] = overrideOrNull;
+      else delete next.overrides[userId];
+      return next;
+    });
+  }
+
+  const roleDefaultFor = (role) => (role === "bdm" ? draft.bdm : draft.dsc);
+
   return (
     <div className="flex h-full flex-col">
       <Topbar
         title="Compensation & Targets"
-        subtitle="Admin — salaries, targets, commission %, training and deductions. Changes reflect in the DSC and BDM analytics."
+        subtitle="Admin — company defaults per role, plus per-person overrides. Changes reflect live in the DSC and BDM analytics."
         right={
           <div className="flex items-center gap-2">
             <button
@@ -105,98 +140,133 @@ export default function CompensationPage() {
           <p className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">
             ✅ Saved. The DSC and BDM analytics now use these figures.
           </p>
+        ) : dirty ? (
+          <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
+            Unsaved changes — press Update to apply them to the analytics.
+          </p>
         ) : null}
 
-        <Section title="BDM (manager)">
-          <NumberField
-            label="Total monthly salary"
-            value={draft.bdm.salaryMonthly}
-            onChange={(v) => set("bdm.salaryMonthly", v)}
-            suffix="₹ / mo"
-            help="Fixed part + performance pay"
-          />
-          <NumberField
-            label="Fixed portion"
-            value={draft.bdm.fixedPortionPct}
-            onChange={(v) => set("bdm.fixedPortionPct", v)}
-            suffix="%"
-            help="Always paid; the rest is performance pay (target-gated)"
-          />
-          <NumberField
-            label="Commission on every sale"
-            value={draft.bdm.commissionPct}
-            onChange={(v) => set("bdm.commissionPct", v)}
-            suffix="%"
-            help="Whole team's sales; paid only if company target met"
-          />
-          <NumberField
-            label="Company monthly target"
-            value={draft.bdm.monthlyLeadTarget}
-            onChange={(v) => set("bdm.monthlyLeadTarget", v)}
-            suffix="closed leads"
-            help="Total closed leads for the team per month"
+        {/* -------- Per-person overrides -------- */}
+        <Section
+          title="Per-person compensation"
+          subtitle="Each person follows their role default unless customized here. Use this to onboard someone on a different salary, commission or target."
+        >
+          <PersonCompTable
+            users={users}
+            draft={draft}
+            onEdit={setEditUser}
+            onReset={(id) => setOverride(id, null)}
           />
         </Section>
 
-        <Section title="DSC (consultant)">
-          <NumberField
-            label="Base monthly salary (post-training)"
-            value={draft.dsc.baseSalaryMonthly}
-            onChange={(v) => set("dsc.baseSalaryMonthly", v)}
-            suffix="₹ / mo"
-          />
-          <NumberField
-            label="Training salary"
-            value={draft.dsc.trainingSalaryMonthly}
-            onChange={(v) => set("dsc.trainingSalaryMonthly", v)}
-            suffix="₹ / mo"
-            help="Paid during the training-cum-probation period"
-          />
-          <NumberField
-            label="Training length"
-            value={draft.dsc.trainingMonths}
-            onChange={(v) => set("dsc.trainingMonths", v)}
-            suffix="months"
-          />
-          <NumberField
-            label="Fixed portion"
-            value={draft.dsc.fixedPortionPct}
-            onChange={(v) => set("dsc.fixedPortionPct", v)}
-            suffix="%"
-          />
-          <NumberField
-            label="Commission on own sales"
-            value={draft.dsc.commissionPct}
-            onChange={(v) => set("dsc.commissionPct", v)}
-            suffix="%"
-            help="Paid only if the DSC's monthly target is met"
-          />
-          <NumberField
-            label="DSC monthly target"
-            value={draft.dsc.monthlyLeadTarget}
-            onChange={(v) => set("dsc.monthlyLeadTarget", v)}
-            suffix="closed leads"
-            help="Each DSC must close at least this many per month"
-          />
+        {/* -------- Company defaults -------- */}
+        <Section
+          title="BDM — company default"
+          subtitle="Applies to every BDM unless overridden above."
+        >
+          <Grid>
+            <NumberField
+              label="Total monthly salary"
+              value={draft.bdm.salaryMonthly}
+              onChange={(v) => set("bdm.salaryMonthly", v)}
+              suffix="₹ / mo"
+              help="Fixed part + performance pay"
+            />
+            <NumberField
+              label="Fixed portion"
+              value={draft.bdm.fixedPortionPct}
+              onChange={(v) => set("bdm.fixedPortionPct", v)}
+              suffix="%"
+              help="Always paid; the rest is performance pay (target-gated)"
+            />
+            <NumberField
+              label="Commission on every sale"
+              value={draft.bdm.commissionPct}
+              onChange={(v) => set("bdm.commissionPct", v)}
+              suffix="%"
+              help="Whole team's sales; paid only if company target met"
+            />
+            <NumberField
+              label="Company monthly target"
+              value={draft.bdm.monthlyLeadTarget}
+              onChange={(v) => set("bdm.monthlyLeadTarget", v)}
+              suffix="closed leads"
+              help="Total closed leads for the team per month"
+            />
+          </Grid>
+        </Section>
+
+        <Section
+          title="DSC — company default"
+          subtitle="Applies to every DSC unless overridden above."
+        >
+          <Grid>
+            <NumberField
+              label="Base monthly salary (post-training)"
+              value={draft.dsc.baseSalaryMonthly}
+              onChange={(v) => set("dsc.baseSalaryMonthly", v)}
+              suffix="₹ / mo"
+            />
+            <NumberField
+              label="Training salary"
+              value={draft.dsc.trainingSalaryMonthly}
+              onChange={(v) => set("dsc.trainingSalaryMonthly", v)}
+              suffix="₹ / mo"
+              help="Paid during the training-cum-probation period"
+            />
+            <NumberField
+              label="Training length"
+              value={draft.dsc.trainingMonths}
+              onChange={(v) => set("dsc.trainingMonths", v)}
+              suffix="months"
+            />
+            <NumberField
+              label="Fixed portion"
+              value={draft.dsc.fixedPortionPct}
+              onChange={(v) => set("dsc.fixedPortionPct", v)}
+              suffix="%"
+            />
+            <NumberField
+              label="Commission on own sales"
+              value={draft.dsc.commissionPct}
+              onChange={(v) => set("dsc.commissionPct", v)}
+              suffix="%"
+              help="Paid only if the DSC's monthly target is met"
+            />
+            <NumberField
+              label="DSC monthly target"
+              value={draft.dsc.monthlyLeadTarget}
+              onChange={(v) => set("dsc.monthlyLeadTarget", v)}
+              suffix="closed leads"
+              help="Each DSC must close at least this many per month"
+            />
+          </Grid>
         </Section>
 
         <Section title="Deductions">
-          <NumberField
-            label="Statutory deduction (PF / tax)"
-            value={draft.deductionPct}
-            onChange={(v) => set("deductionPct", v)}
-            suffix="%"
-            help="Applied to gross pay to get net take-home"
-          />
+          <Grid>
+            <NumberField
+              label="Statutory deduction (PF / tax)"
+              value={draft.deductionPct}
+              onChange={(v) => set("deductionPct", v)}
+              suffix="%"
+              help="Applied to gross pay to get net take-home"
+            />
+          </Grid>
         </Section>
-
-        <p className="text-xs text-slate-400">
-          Seeded from the ScriptGuru offer letters. Stored in your browser for
-          now — TODO(backend): persist via{" "}
-          <code>GET/PUT /api/compensation</code> so the whole company shares one
-          policy.
-        </p>
       </div>
+
+      <PersonCompModal
+        open={!!editUser}
+        user={editUser}
+        roleDefault={editUser ? roleDefaultFor(editUser.role) : {}}
+        override={editUser ? draft.overrides?.[editUser.id] : null}
+        onSave={(override) => {
+          if (editUser) setOverride(editUser.id, override);
+          setEditUser(null);
+        }}
+        onClose={() => setEditUser(null)}
+      />
     </div>
   );
 }

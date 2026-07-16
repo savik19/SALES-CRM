@@ -59,22 +59,43 @@ export function leadMetrics(leads) {
   };
 }
 
-// Monthly earnings for one person. The 75% Fixed part is always paid; the 25%
-// Performance Pay AND the commission are paid ONLY when the monthly target is
-// met (offer-letter rule). During training a DSC gets a flat training salary.
+// The effective compensation package for one person = the role default merged
+// with that individual's override (only the keys present in the override win).
+// This is the single place that decides "what is this person actually paid on".
+export function resolvePersonComp(config, role, userId) {
+  const base = role === "bdm" ? config.bdm : config.dsc;
+  const override = (config.overrides && config.overrides[userId]) || {};
+  return { ...base, ...override };
+}
+
+// True if this person's override differs from the role default in any field.
+export function hasCompOverride(config, userId) {
+  const o = config.overrides && config.overrides[userId];
+  return !!o && Object.keys(o).length > 0;
+}
+
+// Monthly earnings for one person, computed from their EFFECTIVE package `comp`
+// (already resolved via resolvePersonComp) and the global `deductionPct`. The
+// Fixed part is always paid; the Performance Pay AND the commission are paid
+// ONLY when the monthly target is met (offer-letter rule). During training a DSC
+// gets a flat training salary.
 export function personEarnings({
   role,
   inTraining,
   closedCount,
-  target,
   salesValue,
-  config,
+  comp,
+  deductionPct,
 }) {
+  const target = comp.monthlyLeadTarget;
+
   if (role === "dsc" && inTraining) {
-    const gross = config.dsc.trainingSalaryMonthly;
-    const deductions = (gross * config.deductionPct) / 100;
+    const gross = comp.trainingSalaryMonthly;
+    const deductions = (gross * deductionPct) / 100;
     return {
       inTraining: true,
+      fixedPortionPct: comp.fixedPortionPct,
+      commissionPct: comp.commissionPct,
       fixed: gross,
       performancePay: 0,
       commission: 0,
@@ -88,16 +109,18 @@ export function personEarnings({
     };
   }
 
-  const c = role === "bdm" ? config.bdm : config.dsc;
-  const totalSalary = role === "bdm" ? c.salaryMonthly : c.baseSalaryMonthly;
-  const fixed = (totalSalary * c.fixedPortionPct) / 100;
+  const totalSalary =
+    role === "bdm" ? comp.salaryMonthly : comp.baseSalaryMonthly;
+  const fixed = (totalSalary * comp.fixedPortionPct) / 100;
   const performancePay = totalSalary - fixed;
-  const commission = ((Number(salesValue) || 0) * c.commissionPct) / 100;
+  const commission = ((Number(salesValue) || 0) * comp.commissionPct) / 100;
   const targetMet = closedCount >= target;
   const gross = fixed + (targetMet ? performancePay + commission : 0);
-  const deductions = (gross * config.deductionPct) / 100;
+  const deductions = (gross * deductionPct) / 100;
   return {
     inTraining: false,
+    fixedPortionPct: comp.fixedPortionPct,
+    commissionPct: comp.commissionPct,
     fixed,
     performancePay,
     commission,
@@ -111,39 +134,49 @@ export function personEarnings({
   };
 }
 
-// Full analytics for a single DSC (their own leads only).
+// Full analytics for a single DSC (their own leads only), using their effective
+// package (so a per-person override changes only their numbers).
 export function dscAnalytics(dsc, allLeads, config) {
   const own = allLeads.filter((l) => l.assignedDscId === dsc.id);
   const metrics = leadMetrics(own);
-  const inTraining = (dsc.joinedMonthsAgo ?? 99) < config.dsc.trainingMonths;
+  const comp = resolvePersonComp(config, "dsc", dsc.id);
+  const inTraining = (dsc.joinedMonthsAgo ?? 99) < comp.trainingMonths;
   const earnings = personEarnings({
     role: "dsc",
     inTraining,
     closedCount: metrics.won,
-    target: config.dsc.monthlyLeadTarget,
     salesValue: metrics.wonValue,
-    config,
+    comp,
+    deductionPct: config.deductionPct,
   });
-  return { dsc, metrics, earnings };
+  return {
+    dsc,
+    metrics,
+    earnings,
+    comp,
+    overridden: hasCompOverride(config, dsc.id),
+  };
 }
 
-// Full team analytics for the BDM / Admin (whole company).
-export function teamAnalytics(allLeads, dscs, config) {
+// Full team analytics for the BDM / Admin (whole company). `manager` is the
+// viewer (a BDM or Admin) so the BDM earnings card uses their effective package.
+export function teamAnalytics(allLeads, dscs, config, manager) {
   const companyMetrics = leadMetrics(allLeads);
   const perDsc = dscs.map((d) => dscAnalytics(d, allLeads, config));
+  const bdmComp = resolvePersonComp(config, "bdm", manager?.id);
   const bdmEarnings = personEarnings({
     role: "bdm",
     inTraining: false,
     closedCount: companyMetrics.won,
-    target: config.bdm.monthlyLeadTarget,
     salesValue: companyMetrics.wonValue,
-    config,
+    comp: bdmComp,
+    deductionPct: config.deductionPct,
   });
   return {
     companyMetrics,
     perDsc,
     bdmEarnings,
-    companyTarget: config.bdm.monthlyLeadTarget,
+    companyTarget: bdmComp.monthlyLeadTarget,
     companyClosed: companyMetrics.won,
   };
 }

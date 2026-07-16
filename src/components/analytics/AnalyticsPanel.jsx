@@ -60,16 +60,21 @@ function money(n) {
 
 // Earnings breakdown card. Performance Pay + Commission are gated on the target.
 function EarningsCard({ title, e }) {
+  const fixedPct = e.fixedPortionPct ?? 75;
   const rows = e.inTraining
     ? [{ label: "Training salary", value: e.fixed }]
     : [
-        { label: "Fixed salary (75%)", value: e.fixed, paid: true },
+        { label: `Fixed salary (${fixedPct}%)`, value: e.fixed, paid: true },
         {
-          label: "Performance pay (25%)",
+          label: `Performance pay (${100 - fixedPct}%)`,
           value: e.performancePay,
           paid: e.targetMet,
         },
-        { label: "Commission", value: e.commission, paid: e.targetMet },
+        {
+          label: `Commission (${e.commissionPct ?? 0}%)`,
+          value: e.commission,
+          paid: e.targetMet,
+        },
       ];
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4">

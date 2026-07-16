@@ -243,7 +243,7 @@ export default function LeadsPage() {
   const analytics = useMemo(() => {
     if (!viewer) return null;
     return isManager
-      ? { variant: "team", data: teamAnalytics(allLeads, dscs, config) }
+      ? { variant: "team", data: teamAnalytics(allLeads, dscs, config, viewer) }
       : { variant: "dsc", data: dscAnalytics(viewer, allLeads, config) };
   }, [viewer, isManager, allLeads, dscs, config]);
 

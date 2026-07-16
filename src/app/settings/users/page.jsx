@@ -303,13 +303,6 @@ export default function UsersPage() {
             </table>
           </div>
         </div>
-
-        <p className="text-xs text-slate-400">
-          Frontend build — this team is stored in your browser for now.
-          TODO(backend): wire <code>GET/POST/PUT /api/users</code>, the status
-          endpoints, and the real invite-email + set-password flow. See{" "}
-          <code>src/lib/usersConfig.jsx</code>.
-        </p>
       </div>
 
       <UserFormModal
