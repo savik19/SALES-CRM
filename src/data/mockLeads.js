@@ -101,39 +101,56 @@ export const SERVICES = [
 ];
 
 // ---- Team (roles) ----------------------------------------------------------
+// Employment status (HR state, distinct from the account `status` below).
+export const EMPLOYMENT_STATUSES = [
+  { value: "probation_training", label: "Probation / Training" },
+  { value: "full_time", label: "Full-time" },
+  { value: "notice_period", label: "Notice period" },
+  { value: "resigned", label: "Resigned" },
+];
+
 // Admin (manages policy) + one BDM (manager) + the DSCs. `assignedDscId` on a
-// lead points at a DSC id. `joinedMonthsAgo` drives the training/probation state
-// in the earnings model — a DSC is "in training" while joinedMonthsAgo is under
-// the configured training length.
-// Full user record (managed by the Admin in User Management). `status`:
-//   active     — logged in and working
-//   invited    — invite email sent; not yet set their password / logged in
-//   deactivated — left the company; hidden from assignment/login
+// lead points at a DSC id. `joiningDate` drives the training/probation state in
+// the earnings model — a DSC is "in training" while months-since-joining is
+// under the configured training length (see lib/format:monthsSince).
+//
+// Full user record (managed by the Admin in User Management). Two status fields:
+//   status           — ACCOUNT access: active | invited | deactivated
+//   employmentStatus — HR state: probation_training | full_time | notice_period
+//                      | resigned  (see EMPLOYMENT_STATUSES)
+// Contact fields come in company + personal pairs; the personal ones may hold
+// multiple comma-separated values. companyEmail is the unique login handle.
 export const ADMIN = {
   id: "u-admin",
   name: "Admin",
   initials: "AD",
   role: "admin",
-  email: "admin@scriptguru.in",
-  mobile: "+91 90000 00000",
+  companyEmail: "admin@scriptguru.in",
+  personalEmail: "",
+  companyPhone: "+91 90000 00000",
+  personalPhone: "",
   address: "Harawala, Dehradun, Uttarakhand",
   city: "Dehradun",
   salaryMonthly: null,
   status: "active",
-  joinedMonthsAgo: 30,
+  employmentStatus: "full_time",
+  joiningDate: "2024-01-10",
 };
 export const BDM = {
   id: "u-prakhar",
   name: "Prakhar Agarwal",
   initials: "PA",
   role: "bdm",
-  email: "prakhar@scriptguru.in",
-  mobile: "+91 90000 11111",
+  companyEmail: "prakhar@scriptguru.in",
+  personalEmail: "prakhar.agarwal@gmail.com",
+  companyPhone: "+91 90000 11111",
+  personalPhone: "+91 90000 11111",
   address: "Harawala, Dehradun, Uttarakhand",
   city: "Dehradun",
   salaryMonthly: 40000,
   status: "active",
-  joinedMonthsAgo: 24,
+  employmentStatus: "full_time",
+  joiningDate: "2024-07-01",
 };
 
 export const DSCS = [
@@ -142,52 +159,64 @@ export const DSCS = [
     name: "Anaya Rao",
     initials: "AR",
     role: "dsc",
-    email: "anaya@scriptguru.in",
-    mobile: "+91 98111 22001",
+    companyEmail: "anaya@scriptguru.in",
+    personalEmail: "anaya.rao@gmail.com, anaya.personal@outlook.com",
+    companyPhone: "+91 98111 22001",
+    personalPhone: "+91 98111 22001, +91 99700 10001",
     address: "Rajpur Road, Dehradun",
     city: "Dehradun",
     salaryMonthly: 25000,
     status: "active",
-    joinedMonthsAgo: 9,
+    employmentStatus: "full_time",
+    joiningDate: "2025-10-05",
   },
   {
     id: "u-kabir",
     name: "Kabir Mehta",
     initials: "KM",
     role: "dsc",
-    email: "kabir@scriptguru.in",
-    mobile: "+91 98111 22002",
+    companyEmail: "kabir@scriptguru.in",
+    personalEmail: "kabir.mehta@gmail.com",
+    companyPhone: "+91 98111 22002",
+    personalPhone: "+91 98111 22002",
     address: "Ballupur, Dehradun",
     city: "Dehradun",
     salaryMonthly: 25000,
     status: "active",
-    joinedMonthsAgo: 6,
+    employmentStatus: "notice_period",
+    joiningDate: "2026-01-12",
   },
   {
     id: "u-isha",
     name: "Isha Verma",
     initials: "IV",
     role: "dsc",
-    email: "isha@scriptguru.in",
-    mobile: "+91 98111 22003",
+    companyEmail: "isha@scriptguru.in",
+    personalEmail: "isha.verma@gmail.com",
+    companyPhone: "+91 98111 22003",
+    personalPhone: "",
     address: "Clement Town, Dehradun",
     city: "Dehradun",
     salaryMonthly: 25000,
     status: "active",
-    joinedMonthsAgo: 4,
+    employmentStatus: "full_time",
+    joiningDate: "2026-03-03",
   },
   {
     id: "u-rohan",
     name: "Rohan Nair",
     initials: "RN",
     role: "dsc",
-    email: "rohan@scriptguru.in",
-    mobile: "+91 98111 22004",
+    companyEmail: "rohan@scriptguru.in",
+    personalEmail: "rohan.nair@gmail.com",
+    companyPhone: "+91 98111 22004",
+    personalPhone: "",
     address: "Ajabpur, Dehradun",
     city: "Dehradun",
     salaryMonthly: 25000,
     status: "active",
-    joinedMonthsAgo: 1,
+    employmentStatus: "probation_training",
+    joiningDate: "2026-06-20",
   },
 ];
 

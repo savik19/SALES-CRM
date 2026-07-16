@@ -2,18 +2,21 @@
 
 import { useMemo, useState } from "react";
 import Topbar from "@/components/layout/Topbar";
-import UserFormModal from "@/components/users/UserFormModal";
+import UserModal from "@/components/users/UserModal";
 import { useUsers, useUserCounts } from "@/lib/usersConfig";
+import { EMPLOYMENT_STATUSES } from "@/data/mockLeads";
+import { formatDate, employmentDuration } from "@/lib/format";
 
 // ---------------------------------------------------------------------------
 // User Management (Admin) — the admin adds the BDMs and DSCs with all their
 // details, sees how many of each the company has, deactivates anyone who leaves,
-// and invites new joiners by email so they can set a password and log in.
-// Frontend-only for now (mock store); the API swap points live in usersConfig.
+// and invites new joiners by email. Each row opens a read-only detail view; the
+// Admin edits from there. Frontend-only for now; API swap points in usersConfig.
 // ---------------------------------------------------------------------------
 
 const ROLE_LABEL = { admin: "Admin", bdm: "BDM", dsc: "DSC" };
 
+// Account access status.
 const STATUS_STYLES = {
   active: "bg-green-50 text-green-700 ring-green-600/20",
   invited: "bg-amber-50 text-amber-700 ring-amber-600/20",
@@ -25,14 +28,23 @@ const STATUS_LABEL = {
   deactivated: "Deactivated",
 };
 
-function StatusBadge({ status }) {
+// Employment (HR) status.
+const EMP_STYLES = {
+  probation_training: "bg-sky-50 text-sky-700 ring-sky-600/20",
+  full_time: "bg-green-50 text-green-700 ring-green-600/20",
+  notice_period: "bg-amber-50 text-amber-700 ring-amber-600/20",
+  resigned: "bg-red-50 text-red-700 ring-red-600/20",
+};
+const EMP_LABEL = Object.fromEntries(
+  EMPLOYMENT_STATUSES.map((s) => [s.value, s.label])
+);
+
+function Badge({ styles, label }) {
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${
-        STATUS_STYLES[status] || STATUS_STYLES.deactivated
-      }`}
+      className={`inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${styles}`}
     >
-      {STATUS_LABEL[status] || status}
+      {label}
     </span>
   );
 }
@@ -62,6 +74,37 @@ function fmtSalary(v) {
   return `₹${Number(v).toLocaleString("en-IN")}`;
 }
 
+// Render a possibly-multi-value contact field (comma-separated) compactly.
+function MultiValue({ value }) {
+  const parts = (value || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return <span className="text-slate-400">—</span>;
+  return (
+    <div className="max-w-[16rem] truncate" title={parts.join(", ")}>
+      {parts[0]}
+      {parts.length > 1 ? (
+        <span className="ml-1 text-xs text-slate-400">+{parts.length - 1}</span>
+      ) : null}
+    </div>
+  );
+}
+
+const EyeIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    className="h-4 w-4"
+    aria-hidden="true"
+  >
+    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+);
+
 export default function UsersPage() {
   const { users, addUser, updateUser, setStatus, resendInvite } = useUsers();
   const counts = useUserCounts();
@@ -86,17 +129,19 @@ export default function UsersPage() {
   }
 
   function handleSave(draft) {
-    if (modal.mode === "edit") {
+    if (draft.id) {
       updateUser(draft.id, draft);
       notify(`Saved ${draft.name}'s details.`);
     } else {
       const created = addUser(draft);
       notify(
-        `Added ${created.name}. Invite email sent to ${created.email} — they can set a password and log in.`
+        `Added ${created.name}. Invite email sent to ${created.companyEmail} — they can set a password and log in.`
       );
     }
     setModal({ open: false, mode: "add", user: null });
   }
+
+  const closeModal = () => setModal({ open: false, mode: "add", user: null });
 
   return (
     <div className="flex h-full flex-col">
@@ -182,7 +227,7 @@ export default function UsersPage() {
           </label>
         </div>
 
-        {/* Team table */}
+        {/* Team table (address is intentionally not a column — see the detail view) */}
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -190,10 +235,16 @@ export default function UsersPage() {
                 <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <th className="px-4 py-3">Name</th>
                   <th className="px-4 py-3">Role</th>
-                  <th className="px-4 py-3">Contact</th>
+                  <th className="px-4 py-3">Company email</th>
+                  <th className="px-4 py-3">Personal email</th>
+                  <th className="px-4 py-3">Company phone</th>
+                  <th className="px-4 py-3">Personal phone</th>
                   <th className="px-4 py-3">City</th>
                   <th className="px-4 py-3">Salary</th>
-                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Employment</th>
+                  <th className="px-4 py-3">Joined</th>
+                  <th className="px-4 py-3">Duration</th>
+                  <th className="px-4 py-3">Account</th>
                   <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
@@ -201,7 +252,7 @@ export default function UsersPage() {
                 {rows.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={7}
+                      colSpan={13}
                       className="px-4 py-10 text-center text-slate-400"
                     >
                       No users match this filter.
@@ -220,7 +271,7 @@ export default function UsersPage() {
                             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-50 text-xs font-semibold text-brand-700">
                               {u.initials}
                             </span>
-                            <span className="font-medium text-slate-800">
+                            <span className="whitespace-nowrap font-medium text-slate-800">
                               {u.name}
                             </span>
                           </div>
@@ -229,41 +280,71 @@ export default function UsersPage() {
                           {ROLE_LABEL[u.role] || u.role}
                         </td>
                         <td className="px-4 py-3 text-slate-600">
-                          <div>{u.email}</div>
-                          {u.mobile ? (
-                            <div className="text-xs text-slate-400">
-                              {u.mobile}
-                            </div>
-                          ) : null}
+                          {u.companyEmail || "—"}
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">
+                          <MultiValue value={u.personalEmail} />
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-slate-600">
+                          {u.companyPhone || "—"}
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">
+                          <MultiValue value={u.personalPhone} />
                         </td>
                         <td className="px-4 py-3 text-slate-600">
                           {u.city || "—"}
                         </td>
-                        <td className="px-4 py-3 text-slate-600">
+                        <td className="whitespace-nowrap px-4 py-3 text-slate-600">
                           {fmtSalary(u.salaryMonthly)}
                         </td>
                         <td className="px-4 py-3">
-                          <StatusBadge status={u.status} />
+                          <Badge
+                            styles={
+                              EMP_STYLES[u.employmentStatus] ||
+                              EMP_STYLES.full_time
+                            }
+                            label={EMP_LABEL[u.employmentStatus] || "—"}
+                          />
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-slate-600">
+                          {formatDate(u.joiningDate)}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-slate-600">
+                          {employmentDuration(u.joiningDate)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge
+                            styles={
+                              STATUS_STYLES[u.status] ||
+                              STATUS_STYLES.deactivated
+                            }
+                            label={STATUS_LABEL[u.status] || u.status}
+                          />
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center justify-end gap-1.5">
                             <button
                               type="button"
                               onClick={() =>
-                                setModal({ open: true, mode: "edit", user: u })
+                                setModal({ open: true, mode: "view", user: u })
                               }
-                              className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                              title="View details"
+                              aria-label={`View ${u.name}`}
+                              className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
                             >
-                              Edit
+                              <EyeIcon />
+                              View
                             </button>
                             {u.status === "invited" ? (
                               <button
                                 type="button"
                                 onClick={() => {
                                   resendInvite(u.id);
-                                  notify(`Invite re-sent to ${u.email}.`);
+                                  notify(
+                                    `Invite re-sent to ${u.companyEmail}.`
+                                  );
                                 }}
-                                className="rounded-md border border-amber-300 px-2 py-1 text-xs font-medium text-amber-700 hover:bg-amber-50"
+                                className="whitespace-nowrap rounded-md border border-amber-300 px-2 py-1 text-xs font-medium text-amber-700 hover:bg-amber-50"
                               >
                                 Resend invite
                               </button>
@@ -305,13 +386,13 @@ export default function UsersPage() {
         </div>
       </div>
 
-      <UserFormModal
+      <UserModal
         open={modal.open}
-        mode={modal.mode}
+        initialMode={modal.mode}
         user={modal.user}
         existing={users}
         onSave={handleSave}
-        onClose={() => setModal({ open: false, mode: "add", user: null })}
+        onClose={closeModal}
       />
     </div>
   );

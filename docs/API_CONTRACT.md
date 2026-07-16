@@ -79,20 +79,39 @@ rest are HR details the Admin captures.
   "name": "Anaya Rao",
   "initials": "AR", // derived from name; backend may compute or ignore
   "role": "dsc", // "dsc" | "bdm" | "admin"
-  "email": "anaya@scriptguru.in", // string — unique; the login handle
-  "mobile": "+91 98111 22001", // string, may be ""
+  "companyEmail": "anaya@scriptguru.in", // string — unique; the LOGIN handle
+  "personalEmail": "a@gmail.com, b@x.com", // may be multiple, comma-separated; may be ""
+  "companyPhone": "+91 98111 22001", // string, may be ""
+  "personalPhone": "+91 98..., +91 99...", // may be multiple, comma-separated; may be ""
   "address": "Rajpur Road, Dehradun", // string, may be ""
   "city": "Dehradun", // string, may be ""
   "salaryMonthly": 25000, // number (Rupees) or null
-  "status": "active", // "invited" | "active" | "deactivated"
-  "joinedMonthsAgo": 9, // number — under Compensation.dsc.trainingMonths ⇒ training pay
+  "status": "active", // ACCOUNT: "invited" | "active" | "deactivated"
+  "employmentStatus": "full_time", // HR: see EMPLOYMENT_STATUSES below
+  "joiningDate": "2025-10-05", // ISO date; drives training window + tenure
 }
 ```
 
-`status` lifecycle: **invited** (added by Admin, invite email sent, no password
-yet) → **active** (has set a password / logged in) → **deactivated** (left; hidden
-from login, assignment, filters and analytics, but kept for history). Only
-non-deactivated users appear in the role switcher and DSC assignment lists.
+**Employment status** (`employmentStatus`) values: `probation_training,
+full_time, notice_period, resigned`.
+
+**Employment duration** is **computed, never stored** — derive it from
+`joiningDate` (see `employmentDuration()` / `monthsSince()` in `src/lib/format.js`).
+The training-pay window also derives from `joiningDate` (months-since-joining <
+`Compensation.dsc.trainingMonths`).
+
+Two independent status fields:
+
+- `status` (**account**) lifecycle: **invited** (added by Admin, invite email
+  sent, no password yet) → **active** (has set a password / logged in) →
+  **deactivated** (left; hidden from login, assignment, filters and analytics,
+  but kept for history). Only non-deactivated users appear in the role switcher
+  and DSC assignment lists.
+- `employmentStatus` (**HR**) is informational (probation/training, full-time,
+  notice period, resigned) and independent of account access.
+
+`companyEmail` is the unique login handle. The personal email/phone fields may
+hold multiple comma-separated values.
 
 ---
 

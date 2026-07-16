@@ -52,6 +52,32 @@ export function discountPctLabel(lead) {
   return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(1)}%`;
 }
 
+// Whole months elapsed since an ISO date (used for training window + tenure).
+// Returns null when the date is missing/invalid. `now` is injectable for tests.
+export function monthsSince(iso, now = new Date()) {
+  if (!iso) return null;
+  const d = new Date(iso + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return null;
+  let months =
+    (now.getFullYear() - d.getFullYear()) * 12 +
+    (now.getMonth() - d.getMonth());
+  if (now.getDate() < d.getDate()) months -= 1; // not a full month yet
+  return Math.max(0, months);
+}
+
+// Human tenure from a joining date, e.g. "1 yr 3 mo", "5 mo", "< 1 mo", "—".
+export function employmentDuration(iso, now = new Date()) {
+  const m = monthsSince(iso, now);
+  if (m === null) return "—";
+  if (m === 0) return "< 1 mo";
+  const years = Math.floor(m / 12);
+  const rem = m % 12;
+  const parts = [];
+  if (years) parts.push(`${years} yr`);
+  if (rem) parts.push(`${rem} mo`);
+  return parts.join(" ");
+}
+
 // Is a date today or in the past? (drives the "overdue" follow-up styling)
 // `today` is injectable so callers can keep renders deterministic.
 export function isOnOrBefore(iso, today = new Date()) {
