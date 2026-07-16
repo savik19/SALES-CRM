@@ -1,7 +1,12 @@
 "use client";
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { TEAM, registerUsers } from "@/data/mockLeads";
+import {
+  TEAM,
+  registerUsers,
+  COMPANY_DOMAIN,
+  DEFAULT_DIAL_CODE,
+} from "@/data/mockLeads";
 
 // ---------------------------------------------------------------------------
 // User Management store (managed by the Admin).
@@ -60,20 +65,24 @@ function makeId(name, existing) {
 
 // A fresh user record with sane defaults (admin fills the rest in the form).
 // companyEmail is the unique login handle; the personal fields may hold multiple
-// comma-separated values. `status` is account access; `employmentStatus` is HR.
+// comma-separated values. New users start as "added" (no invite sent yet) —
+// the Admin sends the invite as a separate step. `status` is account access;
+// `employmentStatus` is HR.
 export function blankUser() {
   return {
     id: "",
     name: "",
     role: "dsc",
+    companyDomain: COMPANY_DOMAIN,
     companyEmail: "",
     personalEmail: "",
+    dialCode: DEFAULT_DIAL_CODE,
     companyPhone: "",
     personalPhone: "",
     address: "",
     city: "",
     salaryMonthly: null,
-    status: "invited",
+    status: "added",
     employmentStatus: "probation_training",
     joiningDate: "",
   };
@@ -114,8 +123,8 @@ export function UsersProvider({ children }) {
     return {
       users,
 
-      // Add a user. New joiners start as "invited" (invite email is sent by the
-      // backend). Returns the created record.
+      // Add a user. New joiners start as "added" — NO invite yet; the Admin
+      // sends the invite as a separate action. Returns the created record.
       addUser(draft) {
         const id = makeId(draft.name, users);
         const user = {
@@ -123,7 +132,7 @@ export function UsersProvider({ children }) {
           ...draft,
           id,
           initials: initials(draft.name),
-          status: draft.status || "invited",
+          status: "added",
         };
         persist([...users, user]);
         return user;
@@ -148,10 +157,11 @@ export function UsersProvider({ children }) {
         persist(users.map((u) => (u.id === id ? { ...u, status } : u)));
       },
 
-      // (Re)send the invite email. Frontend stub — flips the user to "invited"
-      // and records that a link went out. Real send happens on the backend.
-      // TODO(backend): POST /api/users/:id/invite → sends the email + magic link.
-      resendInvite(id) {
+      // Send (or re-send) the invite email — a separate step from adding.
+      // Flips the user to "invited" so they can set a password and log in.
+      // TODO(backend): POST /api/users/:id/invite → sends the email + magic link
+      // to their companyEmail.
+      sendInvite(id) {
         persist(
           users.map((u) => (u.id === id ? { ...u, status: "invited" } : u))
         );

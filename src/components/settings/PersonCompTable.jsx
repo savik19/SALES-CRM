@@ -9,10 +9,17 @@ import { fieldsForRole } from "@/lib/compConfig";
 // updates live as overrides are edited (before Update is pressed).
 // ---------------------------------------------------------------------------
 
-function effective(draft, role, userId) {
+// Effective package = role default → the person's own monthly salary (as their
+// post-training base) → per-person override. Mirrors resolvePersonComp so the
+// table shows exactly what the analytics pay on.
+function effective(draft, user) {
+  const role = user.role;
   const base = role === "bdm" ? draft.bdm : draft.dsc;
-  const override = (draft.overrides && draft.overrides[userId]) || {};
-  return { comp: { ...base, ...override }, override };
+  const salaryKey = role === "bdm" ? "salaryMonthly" : "baseSalaryMonthly";
+  const fromUser =
+    user.salaryMonthly != null ? { [salaryKey]: user.salaryMonthly } : {};
+  const override = (draft.overrides && draft.overrides[user.id]) || {};
+  return { comp: { ...base, ...fromUser, ...override }, override };
 }
 
 function money(v) {
@@ -39,9 +46,10 @@ export default function PersonCompTable({ users, draft, onEdit, onReset }) {
 
   return (
     <div className="overflow-hidden rounded-lg border border-slate-200">
-      <div className="overflow-x-auto">
+      {/* Fixed height (~6 rows) — the list scrolls inside as the team grows. */}
+      <div className="max-h-[20rem] overflow-auto">
         <table className="min-w-full text-sm">
-          <thead>
+          <thead className="sticky top-0 z-10">
             <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
               <th className="px-4 py-2.5">Person</th>
               <th className="px-4 py-2.5">Role</th>
@@ -54,7 +62,7 @@ export default function PersonCompTable({ users, draft, onEdit, onReset }) {
           </thead>
           <tbody className="divide-y divide-slate-100">
             {people.map((u) => {
-              const { comp, override } = effective(draft, u.role, u.id);
+              const { comp, override } = effective(draft, u);
               const overridden = Object.keys(override).length > 0;
               const salary =
                 u.role === "bdm" ? comp.salaryMonthly : comp.baseSalaryMonthly;

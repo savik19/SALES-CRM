@@ -114,19 +114,30 @@ export const EMPLOYMENT_STATUSES = [
 // the earnings model — a DSC is "in training" while months-since-joining is
 // under the configured training length (see lib/format:monthsSince).
 //
+// Company defaults used to auto-derive a new hire's work contact details.
+export const COMPANY_DOMAIN = "scriptguru.in"; // -> companyEmail = slug@domain
+export const DEFAULT_DIAL_CODE = "+91"; // -> prefixes new phone numbers
+
 // Full user record (managed by the Admin in User Management). Two status fields:
-//   status           — ACCOUNT access: active | invited | deactivated
+//   status           — ACCOUNT access: added | invited | active | deactivated
+//     added       — created by the Admin; no invite email sent yet
+//     invited     — invite email sent; hasn't set a password / logged in
+//     active      — has logged in and is working
+//     deactivated — left the company; hidden from login/assignment
 //   employmentStatus — HR state: probation_training | full_time | notice_period
 //                      | resigned  (see EMPLOYMENT_STATUSES)
 // Contact fields come in company + personal pairs; the personal ones may hold
-// multiple comma-separated values. companyEmail is the unique login handle.
+// multiple comma-separated values. companyEmail is the unique login handle, and
+// its domain + the dial code are captured so new hires inherit the format.
 export const ADMIN = {
   id: "u-admin",
   name: "Admin",
   initials: "AD",
   role: "admin",
+  companyDomain: COMPANY_DOMAIN,
   companyEmail: "admin@scriptguru.in",
   personalEmail: "",
+  dialCode: DEFAULT_DIAL_CODE,
   companyPhone: "+91 90000 00000",
   personalPhone: "",
   address: "Harawala, Dehradun, Uttarakhand",
@@ -141,8 +152,10 @@ export const BDM = {
   name: "Prakhar Agarwal",
   initials: "PA",
   role: "bdm",
+  companyDomain: COMPANY_DOMAIN,
   companyEmail: "prakhar@scriptguru.in",
   personalEmail: "prakhar.agarwal@gmail.com",
+  dialCode: DEFAULT_DIAL_CODE,
   companyPhone: "+91 90000 11111",
   personalPhone: "+91 90000 11111",
   address: "Harawala, Dehradun, Uttarakhand",
@@ -159,8 +172,10 @@ export const DSCS = [
     name: "Anaya Rao",
     initials: "AR",
     role: "dsc",
+    companyDomain: COMPANY_DOMAIN,
     companyEmail: "anaya@scriptguru.in",
     personalEmail: "anaya.rao@gmail.com, anaya.personal@outlook.com",
+    dialCode: DEFAULT_DIAL_CODE,
     companyPhone: "+91 98111 22001",
     personalPhone: "+91 98111 22001, +91 99700 10001",
     address: "Rajpur Road, Dehradun",
@@ -175,8 +190,10 @@ export const DSCS = [
     name: "Kabir Mehta",
     initials: "KM",
     role: "dsc",
+    companyDomain: COMPANY_DOMAIN,
     companyEmail: "kabir@scriptguru.in",
     personalEmail: "kabir.mehta@gmail.com",
+    dialCode: DEFAULT_DIAL_CODE,
     companyPhone: "+91 98111 22002",
     personalPhone: "+91 98111 22002",
     address: "Ballupur, Dehradun",
@@ -191,8 +208,10 @@ export const DSCS = [
     name: "Isha Verma",
     initials: "IV",
     role: "dsc",
+    companyDomain: COMPANY_DOMAIN,
     companyEmail: "isha@scriptguru.in",
     personalEmail: "isha.verma@gmail.com",
+    dialCode: DEFAULT_DIAL_CODE,
     companyPhone: "+91 98111 22003",
     personalPhone: "",
     address: "Clement Town, Dehradun",
@@ -207,8 +226,10 @@ export const DSCS = [
     name: "Rohan Nair",
     initials: "RN",
     role: "dsc",
+    companyDomain: COMPANY_DOMAIN,
     companyEmail: "rohan@scriptguru.in",
     personalEmail: "rohan.nair@gmail.com",
+    dialCode: DEFAULT_DIAL_CODE,
     companyPhone: "+91 98111 22004",
     personalPhone: "",
     address: "Ajabpur, Dehradun",
@@ -217,6 +238,26 @@ export const DSCS = [
     status: "active",
     employmentStatus: "probation_training",
     joiningDate: "2026-06-20",
+  },
+  {
+    // A former DSC — demonstrates "resigned" + a deactivated account (hidden
+    // unless "Show deactivated" is on).
+    id: "u-vikram",
+    name: "Vikram Singh",
+    initials: "VS",
+    role: "dsc",
+    companyDomain: COMPANY_DOMAIN,
+    companyEmail: "vikram@scriptguru.in",
+    personalEmail: "vikram.singh@gmail.com",
+    dialCode: DEFAULT_DIAL_CODE,
+    companyPhone: "+91 98111 22005",
+    personalPhone: "",
+    address: "Sahastradhara Road, Dehradun",
+    city: "Dehradun",
+    salaryMonthly: 25000,
+    status: "deactivated",
+    employmentStatus: "resigned",
+    joiningDate: "2025-02-15",
   },
 ];
 

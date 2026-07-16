@@ -1,16 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { blankUser } from "@/lib/usersConfig";
 import { EMPLOYMENT_STATUSES } from "@/data/mockLeads";
 import { formatDate, employmentDuration } from "@/lib/format";
 
 // ---------------------------------------------------------------------------
 // User detail modal — one component, three modes:
-//   "add"  — empty editable form; creates an Invited user (invite email sent).
+//   "add"  — empty editable form; ADDS the user (no invite yet — that's a
+//            separate action from the table). All fields are mandatory.
 //   "view" — read-only details for everyone to see; an Edit button switches to…
 //   "edit" — the same fields become editable inputs; Save persists.
-// Clicking a row's view (eye) action opens "view"; the Admin edits from there.
+// The company domain + country (dial) code shape a new hire's work email/phone.
 // ---------------------------------------------------------------------------
 
 const inputClass =
@@ -22,6 +23,19 @@ function isValidEmail(v) {
 }
 function empLabel(v) {
   return EMPLOYMENT_STATUSES.find((s) => s.value === v)?.label || "—";
+}
+function emailSlug(name) {
+  const first = (name || "").trim().split(/\s+/)[0] || "";
+  return first.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+function digitCount(v) {
+  return ((v || "").match(/\d/g) || []).length;
+}
+function splitMulti(v) {
+  return (v || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 // A labelled field: renders an input in edit mode, or plain text in view mode.
@@ -65,38 +79,93 @@ export default function UserModal({
   const [mode, setMode] = useState(initialMode); // add | view | edit
   const [draft, setDraft] = useState(blankUser());
   const [error, setError] = useState("");
+  // Whether the Admin has hand-edited the company email (stops auto-derive).
+  const emailTouched = useRef(false);
 
   useEffect(() => {
     if (!open) return;
     setMode(initialMode);
-    setDraft(
-      initialMode === "add" || !user ? blankUser() : { ...blankUser(), ...user }
-    );
     setError("");
+    emailTouched.current = false;
+    if (initialMode === "add" || !user) {
+      const base = blankUser();
+      // Country code seeds the phone fields so new numbers inherit the format.
+      base.companyPhone = `${base.dialCode} `;
+      base.personalPhone = `${base.dialCode} `;
+      setDraft(base);
+    } else {
+      setDraft({ ...blankUser(), ...user });
+    }
   }, [open, initialMode, user]);
 
   if (!open) return null;
 
   const editing = mode === "add" || mode === "edit";
+  const isAdd = mode === "add";
   const set = (key, value) => setDraft((d) => ({ ...d, [key]: value }));
 
-  function submit() {
-    const name = draft.name.trim();
-    if (!name) return setError("Name is required.");
+  // Name → auto-derive the company email (add mode, until the Admin edits it).
+  function onNameChange(name) {
+    setDraft((d) => {
+      const next = { ...d, name };
+      if (isAdd && !emailTouched.current) {
+        const slug = emailSlug(name);
+        next.companyEmail = slug ? `${slug}@${d.companyDomain}` : "";
+      }
+      return next;
+    });
+  }
+  // Domain change re-derives the company email too (add mode, untouched).
+  function onDomainChange(companyDomain) {
+    setDraft((d) => {
+      const next = { ...d, companyDomain };
+      if (isAdd && !emailTouched.current) {
+        const slug = emailSlug(d.name);
+        next.companyEmail = slug ? `${slug}@${companyDomain}` : "";
+      }
+      return next;
+    });
+  }
+
+  // Full mandatory validation on ADD; lighter on EDIT (so partially-filled
+  // legacy records can still be edited). Returns an error message or null.
+  function validate() {
+    if (!draft.name.trim()) return "Full name is required.";
     if (!isValidEmail(draft.companyEmail))
-      return setError("A valid company email is required (it's the login).");
+      return "A valid company email is required (it's the login).";
     const dupe = (existing || []).some(
       (u) =>
         u.id !== draft.id &&
         (u.companyEmail || "").trim().toLowerCase() ===
           draft.companyEmail.trim().toLowerCase()
     );
-    if (dupe)
-      return setError("That company email is already used by another user.");
+    if (dupe) return "That company email is already used by another user.";
 
+    if (isAdd) {
+      if (!draft.personalEmail.trim()) return "Personal email is required.";
+      const badEmail = splitMulti(draft.personalEmail).find(
+        (e) => !isValidEmail(e)
+      );
+      if (badEmail) return `"${badEmail}" is not a valid personal email.`;
+      if (digitCount(draft.companyPhone) < 7)
+        return "A valid company phone is required.";
+      if (digitCount(draft.personalPhone) < 7)
+        return "A valid personal phone is required.";
+      if (!draft.address.trim()) return "Address is required.";
+      if (!draft.city.trim()) return "City is required.";
+      if (!draft.joiningDate) return "Joining date is required.";
+      if (draft.salaryMonthly === null || Number(draft.salaryMonthly) <= 0)
+        return "Monthly salary is required.";
+    }
+    return null;
+  }
+
+  function submit() {
+    const msg = validate();
+    if (msg) return setError(msg);
     onSave({
       ...draft,
-      name,
+      name: draft.name.trim(),
       companyEmail: draft.companyEmail.trim(),
       personalEmail: (draft.personalEmail || "").trim(),
       companyPhone: (draft.companyPhone || "").trim(),
@@ -154,7 +223,7 @@ export default function UserModal({
               <input
                 className={inputClass}
                 value={draft.name}
-                onChange={(e) => set("name", e.target.value)}
+                onChange={(e) => onNameChange(e.target.value)}
                 placeholder="e.g. Anaya Rao"
               />
             </Field>
@@ -176,6 +245,36 @@ export default function UserModal({
           </Group>
 
           <Group title="Contact">
+            {editing ? (
+              <>
+                <Field
+                  label="Company domain"
+                  value={draft.companyDomain}
+                  editing
+                  hint="Shapes the company email (name@domain)"
+                >
+                  <input
+                    className={inputClass}
+                    value={draft.companyDomain}
+                    onChange={(e) => onDomainChange(e.target.value)}
+                    placeholder="scriptguru.in"
+                  />
+                </Field>
+                <Field
+                  label="Country code"
+                  value={draft.dialCode}
+                  editing
+                  hint="Prefixes new phone numbers"
+                >
+                  <input
+                    className={inputClass}
+                    value={draft.dialCode}
+                    onChange={(e) => set("dialCode", e.target.value)}
+                    placeholder="+91"
+                  />
+                </Field>
+              </>
+            ) : null}
             <Field
               label="Company email (login)"
               value={draft.companyEmail}
@@ -185,7 +284,10 @@ export default function UserModal({
                 type="email"
                 className={inputClass}
                 value={draft.companyEmail}
-                onChange={(e) => set("companyEmail", e.target.value)}
+                onChange={(e) => {
+                  emailTouched.current = true;
+                  set("companyEmail", e.target.value);
+                }}
                 placeholder="name@scriptguru.in"
               />
             </Field>
@@ -289,6 +391,7 @@ export default function UserModal({
                   : `₹${Number(draft.salaryMonthly).toLocaleString("en-IN")}`
               }
               editing={editing}
+              hint="Becomes the post-training base salary in Compensation"
             >
               <input
                 type="number"
@@ -311,7 +414,7 @@ export default function UserModal({
         <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-6 py-4">
           <p className="text-xs text-slate-400">
             {mode === "add"
-              ? "Added as Invited — an invite email lets them set a password and log in."
+              ? "All fields required. The user is added to the directory — send the invite separately from the table."
               : mode === "edit"
                 ? "Editable fields are enabled. Duration is calculated from the joining date."
                 : "Read-only. Press Edit to change these details."}
@@ -330,7 +433,7 @@ export default function UserModal({
                 onClick={submit}
                 className="rounded-lg bg-brand px-4 py-1.5 text-sm font-medium text-white hover:bg-brand-700"
               >
-                {mode === "add" ? "Add & send invite" : "Save changes"}
+                {mode === "add" ? "Add user" : "Save changes"}
               </button>
             ) : null}
           </div>

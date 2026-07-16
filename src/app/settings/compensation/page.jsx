@@ -101,7 +101,17 @@ export default function CompensationPage() {
     });
   }
 
-  const roleDefaultFor = (role) => (role === "bdm" ? draft.bdm : draft.dsc);
+  // The "inherited default" the override editor shows. A person's own monthly
+  // salary (User Management) stands in for the role's base-salary default, so
+  // customizing salary is relative to what they're actually on.
+  const roleDefaultFor = (user) => {
+    const base = user.role === "bdm" ? draft.bdm : draft.dsc;
+    const salaryKey =
+      user.role === "bdm" ? "salaryMonthly" : "baseSalaryMonthly";
+    return user.salaryMonthly != null
+      ? { ...base, [salaryKey]: user.salaryMonthly }
+      : base;
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -146,20 +156,7 @@ export default function CompensationPage() {
           </p>
         ) : null}
 
-        {/* -------- Per-person overrides -------- */}
-        <Section
-          title="Per-person compensation"
-          subtitle="Each person follows their role default unless customized here. Use this to onboard someone on a different salary, commission or target."
-        >
-          <PersonCompTable
-            users={users}
-            draft={draft}
-            onEdit={setEditUser}
-            onReset={(id) => setOverride(id, null)}
-          />
-        </Section>
-
-        {/* -------- Company defaults -------- */}
+        {/* -------- Company defaults (first) -------- */}
         <Section
           title="BDM — company default"
           subtitle="Applies to every BDM unless overridden above."
@@ -254,12 +251,25 @@ export default function CompensationPage() {
             />
           </Grid>
         </Section>
+
+        {/* -------- Per-person overrides (after the defaults) -------- */}
+        <Section
+          title="Per-person compensation"
+          subtitle="Each person follows their role default unless customized here. A person's own monthly salary (set in User Management) is their post-training base; customize below to onboard someone on a different salary, commission or target."
+        >
+          <PersonCompTable
+            users={users}
+            draft={draft}
+            onEdit={setEditUser}
+            onReset={(id) => setOverride(id, null)}
+          />
+        </Section>
       </div>
 
       <PersonCompModal
         open={!!editUser}
         user={editUser}
-        roleDefault={editUser ? roleDefaultFor(editUser.role) : {}}
+        roleDefault={editUser ? roleDefaultFor(editUser) : {}}
         override={editUser ? draft.overrides?.[editUser.id] : null}
         onSave={(override) => {
           if (editUser) setOverride(editUser.id, override);

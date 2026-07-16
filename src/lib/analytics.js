@@ -59,13 +59,19 @@ export function leadMetrics(leads) {
   };
 }
 
-// The effective compensation package for one person = the role default merged
-// with that individual's override (only the keys present in the override win).
+// The effective compensation package for one person. Resolution order (later
+// wins): role default → the person's own monthly salary (from User Management,
+// used as their post-training base salary) → per-person compensation override.
 // This is the single place that decides "what is this person actually paid on".
-export function resolvePersonComp(config, role, userId) {
+export function resolvePersonComp(config, role, user) {
   const base = role === "bdm" ? config.bdm : config.dsc;
-  const override = (config.overrides && config.overrides[userId]) || {};
-  return { ...base, ...override };
+  const salaryKey = role === "bdm" ? "salaryMonthly" : "baseSalaryMonthly";
+  const fromUser =
+    user && user.salaryMonthly != null
+      ? { [salaryKey]: user.salaryMonthly }
+      : {};
+  const override = (config.overrides && config.overrides[user?.id]) || {};
+  return { ...base, ...fromUser, ...override };
 }
 
 // True if this person's override differs from the role default in any field.
@@ -139,7 +145,7 @@ export function personEarnings({
 export function dscAnalytics(dsc, allLeads, config) {
   const own = allLeads.filter((l) => l.assignedDscId === dsc.id);
   const metrics = leadMetrics(own);
-  const comp = resolvePersonComp(config, "dsc", dsc.id);
+  const comp = resolvePersonComp(config, "dsc", dsc);
   const tenureMonths = monthsSince(dsc.joiningDate);
   const inTraining =
     tenureMonths !== null && tenureMonths < comp.trainingMonths;
@@ -165,7 +171,7 @@ export function dscAnalytics(dsc, allLeads, config) {
 export function teamAnalytics(allLeads, dscs, config, manager) {
   const companyMetrics = leadMetrics(allLeads);
   const perDsc = dscs.map((d) => dscAnalytics(d, allLeads, config));
-  const bdmComp = resolvePersonComp(config, "bdm", manager?.id);
+  const bdmComp = resolvePersonComp(config, "bdm", manager);
   const bdmEarnings = personEarnings({
     role: "bdm",
     inTraining: false,

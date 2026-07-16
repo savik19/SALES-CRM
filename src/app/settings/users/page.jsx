@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Topbar from "@/components/layout/Topbar";
 import UserModal from "@/components/users/UserModal";
 import { useUsers, useUserCounts } from "@/lib/usersConfig";
@@ -8,23 +9,25 @@ import { EMPLOYMENT_STATUSES } from "@/data/mockLeads";
 import { formatDate, employmentDuration } from "@/lib/format";
 
 // ---------------------------------------------------------------------------
-// User Management (Admin) — the admin adds the BDMs and DSCs with all their
-// details, sees how many of each the company has, deactivates anyone who leaves,
-// and invites new joiners by email. Each row opens a read-only detail view; the
-// Admin edits from there. Frontend-only for now; API swap points in usersConfig.
+// User Management (Admin) — add BDMs & DSCs with full HR details, see counts,
+// deactivate leavers, and invite joiners. Adding a user and sending the invite
+// are separate steps. Row actions live in a three-dot menu at the start of the
+// row. Frontend-only for now; API swap points in usersConfig.
 // ---------------------------------------------------------------------------
 
 const ROLE_LABEL = { admin: "Admin", bdm: "BDM", dsc: "DSC" };
 
 // Account access status.
 const STATUS_STYLES = {
-  active: "bg-green-50 text-green-700 ring-green-600/20",
+  added: "bg-slate-100 text-slate-600 ring-slate-400/20",
   invited: "bg-amber-50 text-amber-700 ring-amber-600/20",
+  active: "bg-green-50 text-green-700 ring-green-600/20",
   deactivated: "bg-slate-100 text-slate-500 ring-slate-400/20",
 };
 const STATUS_LABEL = {
-  active: "Active",
+  added: "Added",
   invited: "Invited",
+  active: "Active",
   deactivated: "Deactivated",
 };
 
@@ -82,36 +85,94 @@ function MultiValue({ value }) {
     .filter(Boolean);
   if (parts.length === 0) return <span className="text-slate-400">—</span>;
   return (
-    <div className="max-w-[16rem] truncate" title={parts.join(", ")}>
+    <span className="whitespace-nowrap" title={parts.join(", ")}>
       {parts[0]}
       {parts.length > 1 ? (
         <span className="ml-1 text-xs text-slate-400">+{parts.length - 1}</span>
       ) : null}
-    </div>
+    </span>
   );
 }
 
-const EyeIcon = () => (
-  <svg
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    className="h-4 w-4"
-    aria-hidden="true"
-  >
-    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
-    <circle cx="12" cy="12" r="3" />
-  </svg>
-);
+// Three-dot row menu. Renders its dropdown in a portal with fixed positioning so
+// it never gets clipped by the table's scroll container.
+function KebabMenu({ items }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const btnRef = useRef(null);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => {
+      if (
+        !btnRef.current?.contains(e.target) &&
+        !menuRef.current?.contains(e.target)
+      )
+        setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  function toggle() {
+    const r = btnRef.current.getBoundingClientRect();
+    setPos({ top: r.bottom + 4, left: r.left });
+    setOpen((o) => !o);
+  }
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={toggle}
+        aria-label="Row actions"
+        className="flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+      >
+        <svg viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">
+          <circle cx="12" cy="5" r="1.6" />
+          <circle cx="12" cy="12" r="1.6" />
+          <circle cx="12" cy="19" r="1.6" />
+        </svg>
+      </button>
+      {open
+        ? createPortal(
+            <div
+              ref={menuRef}
+              style={{ position: "fixed", top: pos.top, left: pos.left }}
+              className="z-50 w-48 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+            >
+              {items.map((it, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    it.onClick();
+                  }}
+                  className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 ${
+                    it.danger ? "text-red-600" : "text-slate-700"
+                  }`}
+                >
+                  {it.label}
+                </button>
+              ))}
+            </div>,
+            document.body
+          )
+        : null}
+    </>
+  );
+}
 
 export default function UsersPage() {
-  const { users, addUser, updateUser, setStatus, resendInvite } = useUsers();
+  const { users, addUser, updateUser, setStatus, sendInvite } = useUsers();
   const counts = useUserCounts();
 
   const [modal, setModal] = useState({ open: false, mode: "add", user: null });
   const [roleFilter, setRoleFilter] = useState("all"); // all | bdm | dsc
-  const [showDeactivated, setShowDeactivated] = useState(true);
+  const [showDeactivated, setShowDeactivated] = useState(false);
   const [flash, setFlash] = useState("");
 
   const rows = useMemo(() => {
@@ -121,6 +182,13 @@ export default function UsersPage() {
       .filter((u) => (showDeactivated ? true : u.status !== "deactivated"))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [users, roleFilter, showDeactivated]);
+
+  const deactivatedCount = useMemo(
+    () =>
+      users.filter((u) => u.role !== "admin" && u.status === "deactivated")
+        .length,
+    [users]
+  );
 
   function notify(msg) {
     setFlash(msg);
@@ -135,13 +203,64 @@ export default function UsersPage() {
     } else {
       const created = addUser(draft);
       notify(
-        `Added ${created.name}. Invite email sent to ${created.companyEmail} — they can set a password and log in.`
+        `${created.name} added to the directory. Use the row menu to send them an invite when ready.`
       );
     }
     setModal({ open: false, mode: "add", user: null });
   }
 
   const closeModal = () => setModal({ open: false, mode: "add", user: null });
+
+  // The action menu for a row, built from the user's current status.
+  function menuFor(u) {
+    const items = [
+      {
+        label: "View user",
+        onClick: () => setModal({ open: true, mode: "view", user: u }),
+      },
+    ];
+    if (u.status === "added") {
+      items.push({
+        label: "Send invite mail",
+        onClick: () => {
+          sendInvite(u.id);
+          notify(`Invite sent to ${u.companyEmail}.`);
+        },
+      });
+    } else if (u.status === "invited") {
+      items.push({
+        label: "Resend invite mail",
+        onClick: () => {
+          sendInvite(u.id);
+          notify(`Invite re-sent to ${u.companyEmail}.`);
+        },
+      });
+    }
+    if (u.status === "deactivated") {
+      items.push({
+        label: "Reactivate user",
+        onClick: () => {
+          setStatus(u.id, "active");
+          notify(`${u.name} reactivated.`);
+        },
+      });
+    } else {
+      items.push({
+        label: "Deactivate user",
+        danger: true,
+        onClick: () => {
+          setStatus(u.id, "deactivated");
+          notify(
+            `${u.name} deactivated — they can no longer log in or receive leads.`
+          );
+        },
+      });
+    }
+    return items;
+  }
+
+  const HEAD =
+    "whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500";
 
   return (
     <div className="flex h-full flex-col">
@@ -223,29 +342,30 @@ export default function UsersPage() {
               onChange={(e) => setShowDeactivated(e.target.checked)}
               className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
             />
-            Show deactivated
+            Show deactivated{deactivatedCount ? ` (${deactivatedCount})` : ""}
           </label>
         </div>
 
-        {/* Team table (address is intentionally not a column — see the detail view) */}
+        {/* Team table — headers stay on one line; scroll right for more columns.
+            Address is not a column (it's in the detail view). */}
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
+            <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  <th className="px-4 py-3">Name</th>
-                  <th className="px-4 py-3">Role</th>
-                  <th className="px-4 py-3">Company email</th>
-                  <th className="px-4 py-3">Personal email</th>
-                  <th className="px-4 py-3">Company phone</th>
-                  <th className="px-4 py-3">Personal phone</th>
-                  <th className="px-4 py-3">City</th>
-                  <th className="px-4 py-3">Salary</th>
-                  <th className="px-4 py-3">Employment</th>
-                  <th className="px-4 py-3">Joined</th>
-                  <th className="px-4 py-3">Duration</th>
-                  <th className="px-4 py-3">Account</th>
-                  <th className="px-4 py-3 text-right">Actions</th>
+                <tr className="border-b border-slate-200 bg-slate-50">
+                  <th className={`${HEAD} w-12`} />
+                  <th className={HEAD}>Name</th>
+                  <th className={HEAD}>Role</th>
+                  <th className={HEAD}>Company email</th>
+                  <th className={HEAD}>Personal email</th>
+                  <th className={HEAD}>Company phone</th>
+                  <th className={HEAD}>Personal phone</th>
+                  <th className={HEAD}>City</th>
+                  <th className={HEAD}>Monthly salary</th>
+                  <th className={HEAD}>Employment status</th>
+                  <th className={HEAD}>Joining date</th>
+                  <th className={HEAD}>Employment duration</th>
+                  <th className={HEAD}>Account status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -266,20 +386,23 @@ export default function UsersPage() {
                         key={u.id}
                         className={deactivated ? "opacity-60" : ""}
                       >
-                        <td className="px-4 py-3">
+                        <td className="px-2 py-3">
+                          <KebabMenu items={menuFor(u)} />
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3">
                           <div className="flex items-center gap-2">
                             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-50 text-xs font-semibold text-brand-700">
                               {u.initials}
                             </span>
-                            <span className="whitespace-nowrap font-medium text-slate-800">
+                            <span className="font-medium text-slate-800">
                               {u.name}
                             </span>
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-slate-600">
+                        <td className="whitespace-nowrap px-4 py-3 text-slate-600">
                           {ROLE_LABEL[u.role] || u.role}
                         </td>
-                        <td className="px-4 py-3 text-slate-600">
+                        <td className="whitespace-nowrap px-4 py-3 text-slate-600">
                           {u.companyEmail || "—"}
                         </td>
                         <td className="px-4 py-3 text-slate-600">
@@ -291,7 +414,7 @@ export default function UsersPage() {
                         <td className="px-4 py-3 text-slate-600">
                           <MultiValue value={u.personalPhone} />
                         </td>
-                        <td className="px-4 py-3 text-slate-600">
+                        <td className="whitespace-nowrap px-4 py-3 text-slate-600">
                           {u.city || "—"}
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 text-slate-600">
@@ -320,61 +443,6 @@ export default function UsersPage() {
                             }
                             label={STATUS_LABEL[u.status] || u.status}
                           />
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setModal({ open: true, mode: "view", user: u })
-                              }
-                              title="View details"
-                              aria-label={`View ${u.name}`}
-                              className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                            >
-                              <EyeIcon />
-                              View
-                            </button>
-                            {u.status === "invited" ? (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  resendInvite(u.id);
-                                  notify(
-                                    `Invite re-sent to ${u.companyEmail}.`
-                                  );
-                                }}
-                                className="whitespace-nowrap rounded-md border border-amber-300 px-2 py-1 text-xs font-medium text-amber-700 hover:bg-amber-50"
-                              >
-                                Resend invite
-                              </button>
-                            ) : null}
-                            {deactivated ? (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setStatus(u.id, "active");
-                                  notify(`${u.name} reactivated.`);
-                                }}
-                                className="rounded-md border border-green-300 px-2 py-1 text-xs font-medium text-green-700 hover:bg-green-50"
-                              >
-                                Reactivate
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setStatus(u.id, "deactivated");
-                                  notify(
-                                    `${u.name} deactivated — they can no longer log in or receive leads.`
-                                  );
-                                }}
-                                className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-red-50 hover:text-red-600"
-                              >
-                                Deactivate
-                              </button>
-                            )}
-                          </div>
                         </td>
                       </tr>
                     );
