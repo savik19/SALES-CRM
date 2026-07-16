@@ -6,7 +6,7 @@
 // ---------------------------------------------------------------------------
 
 import { LEAD_STATUSES } from "@/data/mockLeads";
-import { isOnOrBefore } from "@/lib/format";
+import { isOnOrBefore, monthsSince } from "@/lib/format";
 
 // A "closed"/won deal = Won or any post-sale status (not Cancelled, which is a
 // won deal that fell apart, and not Lost / On Hold).
@@ -140,7 +140,9 @@ export function dscAnalytics(dsc, allLeads, config) {
   const own = allLeads.filter((l) => l.assignedDscId === dsc.id);
   const metrics = leadMetrics(own);
   const comp = resolvePersonComp(config, "dsc", dsc.id);
-  const inTraining = (dsc.joinedMonthsAgo ?? 99) < comp.trainingMonths;
+  const tenureMonths = monthsSince(dsc.joiningDate);
+  const inTraining =
+    tenureMonths !== null && tenureMonths < comp.trainingMonths;
   const earnings = personEarnings({
     role: "dsc",
     inTraining,

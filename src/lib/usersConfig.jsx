@@ -59,18 +59,23 @@ function makeId(name, existing) {
 }
 
 // A fresh user record with sane defaults (admin fills the rest in the form).
+// companyEmail is the unique login handle; the personal fields may hold multiple
+// comma-separated values. `status` is account access; `employmentStatus` is HR.
 export function blankUser() {
   return {
     id: "",
     name: "",
     role: "dsc",
-    email: "",
-    mobile: "",
+    companyEmail: "",
+    personalEmail: "",
+    companyPhone: "",
+    personalPhone: "",
     address: "",
     city: "",
     salaryMonthly: null,
     status: "invited",
-    joinedMonthsAgo: 0,
+    employmentStatus: "probation_training",
+    joiningDate: "",
   };
 }
 
