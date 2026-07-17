@@ -198,13 +198,15 @@ function Field({ column, lead, canEdit, canAssign, onChange, dscs }) {
 // assignee); BDM edits anything and is the only one who can (re)assign.
 export default function ExpandedLeadRow({
   lead,
-  role,
+  canEdit = false,
+  canAssign = false,
   onChange,
   groups,
   variant = "inline",
 }) {
-  const canEdit = true; // a viewer only ever sees leads they may edit
-  const canAssign = role === "bdm";
+  // `canEdit` = may edit this lead's fields; `canAssign` = may (re)assign it.
+  // Both are decided by the page from the role + focus (see the permission model
+  // in app/leads/page.jsx). A read-only lead has both false.
   const sidebar = variant === "sidebar";
 
   // Assignable DSCs = active DSCs, plus the lead's current assignee if they've

@@ -74,14 +74,26 @@ client-side from the lead dates (`src/lib/analytics.js` → `monthMetrics`). Jus
 return accurate dates on each lead and the metrics follow:
 
 - **Total leads** — all leads assigned to the person (all-time; not month-scoped).
+- **Uncontacted** — leads with no `lastContactDate` yet (never contacted).
+  All-time, **not** month-scoped (e.g. "500 uncontacted of 1000 total").
 - **New assigned** — `assignedDate` in the selected month.
 - **Contacted** — `lastContactDate` in the month.
+- **Meeting scheduled** — leads currently at status `Meeting Scheduled` that were
+  worked in the month (`lastContactDate` **or** `assignedDate` in the month).
+- **Meeting done** — leads currently at status `Meeting Done` that were worked in
+  the month.
 - **Follow-ups due** — `nextFollowUpDate` in the month.
 - **Closed (won)** — a won lead whose `closedDate` is in the month.
 - **Pipeline value** — Σ `quotedAmount` of open leads worked (assigned/contacted)
   in the month.
 
 Earnings/target for the month use "closed (won) in the month" as the closed count.
+
+**Follow-up calendar filter.** The Lead Table has a date-range picker (a single
+day = From == To, or an open-ended From/To) that filters rows by
+`nextFollowUpDate`. It is a client-side view filter only — it does **not** scope
+the analytics (those use the month selector). By default no range is set, so the
+table shows **all** leads with the newest-assigned (`assignedDate` desc) on top.
 
 ### TeamMember / User
 
@@ -183,10 +195,19 @@ SaaS Subscription, Website Development, Digital Marketing, AI Tools, Mobile App,
 Body: a partial `Lead` (only changed fields), e.g. `{ "leadStatus": "Won" }` or
 `{ "assignedDscId": "u-kabir" }`. **200** → the full updated `Lead`.
 
-### `POST /api/leads/assign` (BDM only)
+Enforce the edit-permission model server-side (see **Roles & scoping**):
+
+- Editing any field other than `assignedDscId` requires the caller to **own** the
+  lead — a DSC editing their own lead, or a manager editing an unassigned lead or
+  a lead assigned to themselves. A manager may **not** edit a lead assigned to a
+  DSC (view-only). **403** otherwise.
+- A reassignment (`assignedDscId` change) requires manager (BDM/Admin) rights.
+  `assignedDscId` holds exactly one id (single assignee) or `""`. **403** for a DSC.
+
+### `POST /api/leads/assign` (managers only)
 
 Bulk-assign leads to one DSC. Body `{ "leadIds": string[], "dscId": string }`.
-**200** → `{ "updated": string[] }`. Enforce BDM-only server-side.
+**200** → `{ "updated": string[] }`. Enforce manager-only (BDM/Admin) server-side.
 
 ### `POST /api/leads/import` (BDM only)
 
@@ -264,13 +285,25 @@ training salary instead. Deductions apply to gross to get net take-home.
 
 ## Roles & scoping (Build Brief §4)
 
-- **BDM** — sees all leads; can import, assign/reassign, bulk-assign, edit any field.
+- **Admin** — full oversight. Uses the top viewer switcher to view as the BDM or
+  any DSC (demo); real auth scopes server-side.
+- **BDM (medium)** — sees all leads and can import, assign/reassign, and
+  bulk-assign. **Editing is restricted**: a BDM may edit fields only on
+  **unassigned** leads or leads assigned to **themselves**; a lead assigned to a
+  DSC is **view-only** (they can still reassign it, but not edit its other fields).
+  A BDM can reassign a DSC's lead to another DSC. On the Lead Table the BDM gets a
+  **Focus switcher** (All team / My leads / each DSC): focusing a DSC shows that
+  DSC's analytics + leads **read-only**; "My leads" shows only the BDM's own leads
+  and their own analytics.
 - **DSC** — sees ONLY their own leads (others + unassigned are hidden, not greyed);
-  can edit their own leads' fields and status; **cannot** assign/reassign or import.
+  can edit their own leads' fields and status; **cannot** assign/reassign or import,
+  and has no Focus switcher.
 
-`assignedDscId` holds exactly one DSC id (or `""` for unassigned) and is set only
-by the BDM. The frontend has a demo role switcher; real auth (`GET /api/me`) makes
-the backend the source of truth for the role and the lead scoping.
+`assignedDscId` holds exactly **one** id (single assignee — no multiple assignees)
+or `""` for unassigned, and is set only by a manager. The frontend has a demo role
+switcher; real auth (`GET /api/me`) makes the backend the source of truth for the
+role, the lead scoping, and the edit/assign permission checks above (the UI
+disables the controls; the server must still enforce them).
 
 ## Excel import sheet
 

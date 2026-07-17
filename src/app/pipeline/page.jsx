@@ -206,7 +206,15 @@ export default function PipelinePage() {
 
       <LeadDetailSidebar
         lead={detailLead}
-        role={viewer?.role}
+        canEdit={
+          detailLead
+            ? isManager
+              ? detailLead.assignedDscId === "" ||
+                detailLead.assignedDscId === viewerId
+              : detailLead.assignedDscId === viewerId
+            : false
+        }
+        canAssign={isManager}
         groups={groups}
         onChange={handleFieldChange}
         onClose={() => setDetailLead(null)}

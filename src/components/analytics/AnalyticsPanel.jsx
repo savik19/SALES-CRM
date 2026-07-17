@@ -212,6 +212,12 @@ function DscView({ name, monthLbl, data }) {
           info={`Every lead ever assigned to you — any status (new, won, lost…). Not limited to ${monthLbl}.`}
         />
         <StatTile
+          label="Uncontacted"
+          value={m.uncontacted}
+          tone={m.uncontacted ? "warn" : "default"}
+          info="Leads assigned to you that you haven't contacted yet (no last-contact date). All-time, not limited to the month."
+        />
+        <StatTile
           label="New assigned"
           value={m.newAssigned}
           info={`Leads newly assigned to you in ${monthLbl}.`}
@@ -220,6 +226,16 @@ function DscView({ name, monthLbl, data }) {
           label="Contacted"
           value={m.contacted}
           info={`Leads you contacted (last contact date falls in ${monthLbl}) — e.g. called or messaged.`}
+        />
+        <StatTile
+          label="Meeting scheduled"
+          value={m.meetingScheduled}
+          info={`Leads at "Meeting Scheduled" that you worked in ${monthLbl}.`}
+        />
+        <StatTile
+          label="Meeting done"
+          value={m.meetingDone}
+          info={`Leads at "Meeting Done" that you worked in ${monthLbl}.`}
         />
         <StatTile
           label="Follow-ups due"
@@ -275,6 +291,12 @@ function TeamView({ monthLbl, data }) {
           info="Every lead across the team — any status. Not limited to the selected month."
         />
         <StatTile
+          label="Uncontacted"
+          value={m.uncontacted}
+          tone={m.uncontacted ? "warn" : "default"}
+          info="Team leads not contacted yet (no last-contact date). All-time, not limited to the month."
+        />
+        <StatTile
           label="New assigned"
           value={m.newAssigned}
           info={`Leads newly assigned to the team in ${monthLbl}.`}
@@ -283,6 +305,16 @@ function TeamView({ monthLbl, data }) {
           label="Contacted"
           value={m.contacted}
           info={`Leads the team contacted in ${monthLbl}.`}
+        />
+        <StatTile
+          label="Meeting scheduled"
+          value={m.meetingScheduled}
+          info={`Team leads at "Meeting Scheduled" worked in ${monthLbl}.`}
+        />
+        <StatTile
+          label="Meeting done"
+          value={m.meetingDone}
+          info={`Team leads at "Meeting Done" worked in ${monthLbl}.`}
         />
         <StatTile
           label="Closed (won)"
@@ -389,6 +421,7 @@ function TeamView({ monthLbl, data }) {
 export default function AnalyticsPanel({
   variant,
   dscName,
+  self = false,
   data,
   collapsed,
   onToggle,
@@ -397,6 +430,12 @@ export default function AnalyticsPanel({
   onMonthChange,
 }) {
   const monthLbl = monthLabel(month);
+  const heading =
+    variant === "team"
+      ? "Team performance"
+      : self
+        ? "My performance"
+        : `${dscName}'s performance`;
   return (
     <section className="border-b border-slate-200 bg-slate-50">
       <div className="flex items-center gap-2 px-6 py-3">
@@ -411,9 +450,7 @@ export default function AnalyticsPanel({
           >
             ▸
           </span>
-          <h3 className="text-sm font-semibold text-slate-700">
-            {variant === "dsc" ? "My performance" : "Team performance"}
-          </h3>
+          <h3 className="text-sm font-semibold text-slate-700">{heading}</h3>
         </button>
 
         <div className="ml-auto flex items-center gap-3">

@@ -4,13 +4,6 @@ import MultiSelectDropdown from "./MultiSelectDropdown";
 import ColumnPicker from "./ColumnPicker";
 import { dscName } from "@/data/mockLeads";
 
-// Follow-up date-range quick presets.
-export const DATE_PRESETS = [
-  { key: "today", label: "Today" },
-  { key: "overdue", label: "Overdue" },
-  { key: "week", label: "This Week" },
-];
-
 // The multi-select filters, in display order. `key` matches a lead field
 // (except assignedDscId which stores an id but shows a name).
 const ALL_FILTER_DEFS = [
@@ -26,8 +19,17 @@ function chipValueLabel(filterKey, value) {
   return filterKey === "assignedDscId" ? dscName(value) : value;
 }
 
+// Human label for the follow-up date chip: a single day, an open-ended range,
+// or a closed range.
+function dateChipLabel(from, to) {
+  if (from && to) return from === to ? from : `${from} – ${to}`;
+  if (from) return `from ${from}`;
+  return `until ${to}`;
+}
+
 // Everything above the table: search + result count, import (BDM), the filter
-// bar, active filter chips, and the column picker. Fully controlled.
+// bar (multi-selects + a follow-up calendar), active filter chips, and the
+// column picker. Fully controlled.
 export default function LeadToolbar({
   search,
   onSearch,
@@ -35,8 +37,10 @@ export default function LeadToolbar({
   total,
   filters,
   onFilterChange,
-  datePreset,
-  onDatePreset,
+  dateFrom,
+  dateTo,
+  onDateFrom,
+  onDateTo,
   onClearAll,
   options,
   visibleColumns,
@@ -61,22 +65,34 @@ export default function LeadToolbar({
       });
     }
   }
-  if (datePreset) {
-    const preset = DATE_PRESETS.find((p) => p.key === datePreset);
+  if (dateFrom || dateTo) {
     activeChips.push({
       filterKey: "__date",
-      value: datePreset,
-      label: `Follow-up: ${preset?.label}`,
+      value: `${dateFrom}|${dateTo}`,
+      label: `Follow-up: ${dateChipLabel(dateFrom, dateTo)}`,
     });
   }
 
   function removeChip(chip) {
-    if (chip.filterKey === "__date") onDatePreset("");
-    else
+    if (chip.filterKey === "__date") {
+      onDateFrom("");
+      onDateTo("");
+    } else
       onFilterChange(
         chip.filterKey,
         filters[chip.filterKey].filter((v) => v !== chip.value)
       );
+  }
+
+  // Keep the range coherent: picking a "From" after the current "To" clears
+  // the "To" (and vice-versa) so we never hold an impossible window.
+  function setFrom(v) {
+    onDateFrom(v);
+    if (v && dateTo && v > dateTo) onDateTo("");
+  }
+  function setTo(v) {
+    onDateTo(v);
+    if (v && dateFrom && v < dateFrom) onDateFrom("");
   }
 
   return (
@@ -142,21 +158,43 @@ export default function LeadToolbar({
           />
         ))}
 
-        <div className="ml-1 inline-flex overflow-hidden rounded-lg border border-slate-300">
-          {DATE_PRESETS.map((p) => (
+        {/* Follow-up calendar: pick a single day (set both to the same date via
+            the From field) or a From–To range. Leaving one side blank makes it
+            open-ended. */}
+        <div className="ml-1 inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-1.5">
+          <span className="whitespace-nowrap text-xs font-medium text-slate-500">
+            Follow-up
+          </span>
+          <input
+            type="date"
+            value={dateFrom || ""}
+            max={dateTo || undefined}
+            onChange={(e) => setFrom(e.target.value)}
+            aria-label="Follow-up from date"
+            className="rounded border border-slate-200 bg-white px-1.5 py-1 text-sm text-slate-700 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+          />
+          <span className="text-slate-400">–</span>
+          <input
+            type="date"
+            value={dateTo || ""}
+            min={dateFrom || undefined}
+            onChange={(e) => setTo(e.target.value)}
+            aria-label="Follow-up to date"
+            className="rounded border border-slate-200 bg-white px-1.5 py-1 text-sm text-slate-700 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+          />
+          {dateFrom || dateTo ? (
             <button
-              key={p.key}
               type="button"
-              onClick={() => onDatePreset(datePreset === p.key ? "" : p.key)}
-              className={`px-3 py-2 text-sm transition-colors ${
-                datePreset === p.key
-                  ? "bg-brand text-white"
-                  : "bg-white text-slate-700 hover:bg-slate-50"
-              }`}
+              onClick={() => {
+                onDateFrom("");
+                onDateTo("");
+              }}
+              className="rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              aria-label="Clear follow-up dates"
             >
-              {p.label}
+              ✕
             </button>
-          ))}
+          ) : null}
         </div>
       </div>
 

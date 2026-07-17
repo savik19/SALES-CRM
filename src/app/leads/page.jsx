@@ -11,7 +11,8 @@ import BulkAssignBar from "@/components/leads/BulkAssignBar";
 import ImportModal from "@/components/leads/ImportModal";
 import AnalyticsPanel from "@/components/analytics/AnalyticsPanel";
 import { useCompConfig } from "@/lib/compConfig";
-import { dscAnalytics, teamAnalytics } from "@/lib/analytics";
+import { personAnalytics, teamAnalytics } from "@/lib/analytics";
+import { greetingFor, thoughtOfTheDay } from "@/lib/greeting";
 import {
   allKeys,
   searchableKeys,
@@ -102,25 +103,14 @@ function compareLeads(a, b, column, dir) {
   }
 }
 
-// ---- Follow-up date presets ------------------------------------------------
-function matchesDatePreset(iso, preset) {
-  if (!preset) return true;
+// ---- Follow-up date range (calendar filter) --------------------------------
+// True when `iso` (a lead's follow-up date) is within [from, to] inclusive.
+// Empty from/to = open-ended; both empty = no filter. A single day = from == to.
+function inDateRange(iso, from, to) {
+  if (!from && !to) return true;
   if (!iso) return false;
-  const d = new Date(iso + "T00:00:00");
-  if (Number.isNaN(d.getTime())) return false;
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  if (preset === "today") return d.getTime() === start.getTime();
-  if (preset === "overdue") return d.getTime() < start.getTime();
-  if (preset === "week") {
-    const dow = (start.getDay() + 6) % 7;
-    const weekStart = new Date(start);
-    weekStart.setDate(start.getDate() - dow);
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 6);
-    weekEnd.setHours(23, 59, 59, 999);
-    return d >= weekStart && d <= weekEnd;
-  }
+  if (from && iso < from) return false;
+  if (to && iso > to) return false;
   return true;
 }
 
@@ -136,6 +126,23 @@ export default function LeadsPage() {
   const isBDM = viewer?.role === "bdm";
   // Admin and BDM both see the whole team + can import / (bulk-)assign.
   const isManager = isBDM || isAdmin;
+
+  // ---- Manager focus: "team" | "self" (BDM's own) | a DSC id ----------------
+  // A manager can focus the whole screen (analytics + leads) on the team, their
+  // own leads, or one DSC. Focusing a DSC is view-only (see permission model).
+  const [focus, setFocus] = useState("team");
+  useEffect(() => {
+    // Reset focus when the viewer changes: BDM lands on their own leads, Admin
+    // on the whole team.
+    setFocus(viewer?.role === "bdm" ? "self" : "team");
+  }, [viewerId, viewer?.role]);
+  // Focus only applies to managers; a DSC always sees their own leads.
+  const effFocus = isManager ? focus : "self";
+  const focusDsc =
+    effFocus !== "team" && effFocus !== "self"
+      ? dscs.find((d) => d.id === effFocus)
+      : null;
+  const focusIsDsc = !!focusDsc;
 
   const { config } = useCompConfig();
   const [showAnalytics, setShowAnalytics] = useState(true);
@@ -171,7 +178,8 @@ export default function LeadsPage() {
   // ---- Controls ------------------------------------------------------------
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState(EMPTY_FILTERS);
-  const [datePreset, setDatePreset] = useState("");
+  const [dateFrom, setDateFrom] = useState(""); // follow-up range (calendar)
+  const [dateTo, setDateTo] = useState("");
   const [sort, setSort] = useState({ key: null, dir: null });
   // All columns are visible by default.
   const [visibleCols, setVisibleCols] = useState(() => new Set(colKeys));
@@ -225,7 +233,8 @@ export default function LeadsPage() {
   }
   function clearAllFilters() {
     setFilters(EMPTY_FILTERS);
-    setDatePreset("");
+    setDateFrom("");
+    setDateTo("");
   }
   function handleSort(key) {
     setSort((s) => {
@@ -238,29 +247,64 @@ export default function LeadsPage() {
     setWidths((prev) => ({ ...prev, [key]: w }));
   }
 
-  // ---- Role scoping: DSC sees only their own leads -------------------------
-  const roleScoped = useMemo(
-    () =>
-      isManager
-        ? allLeads
-        : allLeads.filter((l) => l.assignedDscId === viewerId),
-    [allLeads, isManager, viewerId]
-  );
+  // ---- Scoping by focus ----------------------------------------------------
+  // Which leads the screen shows, and whose analytics: the whole team, the
+  // manager's own leads ("self"), or one DSC's leads.
+  const scopeUserId =
+    effFocus === "team" ? null : focusIsDsc ? effFocus : viewerId;
+  const roleScoped = useMemo(() => {
+    if (effFocus === "team") return allLeads; // manager, whole team
+    return allLeads.filter((l) => l.assignedDscId === scopeUserId);
+  }, [allLeads, effFocus, scopeUserId]);
 
-  // Analytics data — DSC sees their own; manager (BDM/Admin) sees the team.
-  // Scoped to the selected month (except all-time totals).
+  // Analytics for the current focus, scoped to the selected month.
   const analytics = useMemo(() => {
     if (!viewer) return null;
-    return isManager
-      ? {
-          variant: "team",
-          data: teamAnalytics(allLeads, dscs, config, viewer, analyticsMonth),
-        }
-      : {
-          variant: "dsc",
-          data: dscAnalytics(viewer, allLeads, config, analyticsMonth),
-        };
-  }, [viewer, isManager, allLeads, dscs, config, analyticsMonth]);
+    if (effFocus === "team") {
+      return {
+        variant: "team",
+        name: viewer.name,
+        self: false,
+        data: teamAnalytics(allLeads, dscs, config, viewer, analyticsMonth),
+      };
+    }
+    if (focusIsDsc) {
+      return {
+        variant: "dsc",
+        name: focusDsc.name,
+        self: false,
+        data: personAnalytics(
+          focusDsc,
+          allLeads,
+          config,
+          analyticsMonth,
+          "dsc"
+        ),
+      };
+    }
+    // "self" — the viewer's own leads (DSC, or a BDM viewing "My leads").
+    return {
+      variant: "dsc",
+      name: viewer.name,
+      self: true,
+      data: personAnalytics(
+        viewer,
+        allLeads,
+        config,
+        analyticsMonth,
+        viewer.role === "bdm" ? "bdm" : "dsc"
+      ),
+    };
+  }, [
+    viewer,
+    effFocus,
+    focusIsDsc,
+    focusDsc,
+    allLeads,
+    dscs,
+    config,
+    analyticsMonth,
+  ]);
 
   const cityOptions = useMemo(
     () =>
@@ -294,7 +338,7 @@ export default function LeadsPage() {
         const sel = filters[key];
         if (sel.length > 0 && !sel.includes(lead[key])) return false;
       }
-      if (!matchesDatePreset(lead.nextFollowUpDate, datePreset)) return false;
+      if (!inDateRange(lead.nextFollowUpDate, dateFrom, dateTo)) return false;
       if (q) {
         const hay = searchKeys
           .map((k) => lead[k])
@@ -308,9 +352,23 @@ export default function LeadsPage() {
       const col = colByKey[sort.key];
       if (col)
         rows = [...rows].sort((a, b) => compareLeads(a, b, col, sort.dir));
+    } else {
+      // Default: newest-assigned leads on top.
+      rows = [...rows].sort((a, b) =>
+        (b.assignedDate || "").localeCompare(a.assignedDate || "")
+      );
     }
     return rows;
-  }, [roleScoped, search, filters, datePreset, sort, searchKeys, colByKey]);
+  }, [
+    roleScoped,
+    search,
+    filters,
+    dateFrom,
+    dateTo,
+    sort,
+    searchKeys,
+    colByKey,
+  ]);
 
   // ---- Pagination ----------------------------------------------------------
   const pageCount = Math.max(1, Math.ceil(visibleLeads.length / PAGE_SIZE));
@@ -323,10 +381,24 @@ export default function LeadsPage() {
       ),
     [visibleLeads, currentPage]
   );
-  // Back to page 1 whenever the result set changes (filters/search/sort/viewer).
+  // Back to page 1 whenever the result set changes.
   useEffect(() => {
     setPage(1);
-  }, [search, filters, datePreset, sort, viewerId]);
+  }, [search, filters, dateFrom, dateTo, sort, viewerId, effFocus]);
+
+  // ---- Lead edit permissions (by role + focus) -----------------------------
+  // Who may edit a lead's FIELDS (not the assignee):
+  //   - a DSC edits their own leads
+  //   - a manager (BDM/Admin) edits only UNASSIGNED leads or leads assigned to
+  //     THEMSELVES; a lead assigned to a DSC is view-only
+  //   - focusing on a DSC is always view-only
+  // Who may (re)assign a lead: a manager, when not focused on a specific DSC.
+  function canEditLead(lead) {
+    if (!isManager) return lead?.assignedDscId === viewerId; // DSC: own leads
+    if (focusIsDsc) return false; // viewing a DSC's book — read-only
+    return lead?.assignedDscId === "" || lead?.assignedDscId === viewerId;
+  }
+  const canReassign = isManager && !focusIsDsc;
 
   const rangeStart = visibleLeads.length
     ? (currentPage - 1) * PAGE_SIZE + 1
@@ -357,6 +429,14 @@ export default function LeadsPage() {
 
   // ---- Mutations -----------------------------------------------------------
   function handleFieldChange(leadId, patch) {
+    // Enforce the permission model (defense-in-depth; the UI also disables it):
+    // a reassignment (assignedDscId only) needs reassign rights; any other field
+    // edit needs edit rights on that lead.
+    const lead = allLeads.find((l) => l.leadId === leadId);
+    const keys = Object.keys(patch);
+    const isReassignOnly = keys.length === 1 && keys[0] === "assignedDscId";
+    if (isReassignOnly ? !canReassign : !canEditLead(lead)) return;
+
     setAllLeads((rows) =>
       rows.map((l) => (l.leadId === leadId ? { ...l, ...patch } : l))
     );
@@ -381,96 +461,143 @@ export default function LeadsPage() {
     setAllLeads((rows) => [...newLeads, ...rows]);
   }
 
+  const focusSubtitle = focusIsDsc
+    ? `Viewing ${focusDsc.name}'s leads (read-only)`
+    : effFocus === "self"
+      ? `${viewer?.name}'s leads`
+      : "All leads across the team";
+
   return (
     <div className="flex h-full flex-col">
       <Topbar
         title="Lead Table"
-        subtitle={
-          isManager ? "All leads across the team" : `${viewer?.name}'s leads`
+        subtitle={focusSubtitle}
+        right={
+          <div className="flex items-center gap-3">
+            {isManager ? (
+              <label className="flex items-center gap-2 text-sm text-slate-600">
+                <span className="hidden sm:inline">Focus</span>
+                <select
+                  value={effFocus}
+                  onChange={(e) => setFocus(e.target.value)}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+                >
+                  <option value="team">All team</option>
+                  {isBDM ? <option value="self">My leads</option> : null}
+                  {dscs.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            <RoleSwitcher viewerId={viewerId} onChange={setViewerId} />
+          </div>
         }
-        right={<RoleSwitcher viewerId={viewerId} onChange={setViewerId} />}
       />
 
-      {analytics && !loading ? (
-        <AnalyticsPanel
-          variant={analytics.variant}
-          dscName={viewer?.name}
-          data={analytics.data}
-          collapsed={!showAnalytics}
-          onToggle={() => setShowAnalytics((s) => !s)}
-          month={analyticsMonth}
-          months={monthOptions}
-          onMonthChange={setAnalyticsMonth}
-        />
-      ) : null}
+      {/* Single vertical scroll: greeting → performance → sticky toolbar →
+          table → pager. Scrolling reveals the full table even with the
+          performance panel open. */}
+      <div className="flex-1 overflow-y-auto">
+        {viewer ? (
+          <div className="border-b border-slate-200 bg-white px-6 py-3">
+            <div className="text-sm text-slate-500">
+              {greetingFor()},{" "}
+              <span className="font-semibold text-slate-800">
+                {viewer.name}
+              </span>{" "}
+              👋
+            </div>
+            <div className="mt-0.5 text-sm italic text-slate-600">
+              “{thoughtOfTheDay(viewer.id)}”
+            </div>
+          </div>
+        ) : null}
 
-      <LeadToolbar
-        search={search}
-        onSearch={setSearch}
-        count={visibleLeads.length}
-        total={roleScoped.length}
-        filters={filters}
-        onFilterChange={handleFilterChange}
-        datePreset={datePreset}
-        onDatePreset={setDatePreset}
-        onClearAll={clearAllFilters}
-        options={filterOptions}
-        visibleColumns={visibleCols}
-        onColumnsChange={setVisibleCols}
-        columnGroups={groups}
-        columnKeys={colKeys}
-        showDscFilter={isManager}
-        canImport={isManager}
-        onImport={() => setImportOpen(true)}
-      />
+        {analytics && !loading ? (
+          <AnalyticsPanel
+            variant={analytics.variant}
+            dscName={analytics.name}
+            self={analytics.self}
+            data={analytics.data}
+            collapsed={!showAnalytics}
+            onToggle={() => setShowAnalytics((s) => !s)}
+            month={analyticsMonth}
+            months={monthOptions}
+            onMonthChange={setAnalyticsMonth}
+          />
+        ) : null}
 
-      {isManager ? (
-        <BulkAssignBar
-          count={selectedIds.size}
-          onAssign={handleBulkAssign}
-          onClear={() => setSelectedIds(new Set())}
-        />
-      ) : null}
+        <div className="sticky top-0 z-20 bg-white shadow-sm">
+          <LeadToolbar
+            search={search}
+            onSearch={setSearch}
+            count={visibleLeads.length}
+            total={roleScoped.length}
+            filters={filters}
+            onFilterChange={handleFilterChange}
+            dateFrom={dateFrom}
+            dateTo={dateTo}
+            onDateFrom={setDateFrom}
+            onDateTo={setDateTo}
+            onClearAll={clearAllFilters}
+            options={filterOptions}
+            visibleColumns={visibleCols}
+            onColumnsChange={setVisibleCols}
+            columnGroups={groups}
+            columnKeys={colKeys}
+            showDscFilter={isManager}
+            canImport={isManager}
+            onImport={() => setImportOpen(true)}
+          />
+          {canReassign ? (
+            <BulkAssignBar
+              count={selectedIds.size}
+              onAssign={handleBulkAssign}
+              onClear={() => setSelectedIds(new Set())}
+            />
+          ) : null}
+        </div>
 
-      <div className="flex flex-1 flex-col overflow-hidden">
         {loading ? (
           <div className="px-6 py-20 text-center text-sm text-slate-500">
             Loading leads…
           </div>
         ) : (
           <>
-            <div className="flex-1 overflow-y-auto">
-              <LeadTable
-                leads={pagedLeads}
-                columns={visibleColumns}
-                widths={widths}
-                onResize={handleResize}
-                sortBy={sort.key}
-                sortDir={sort.dir}
-                onSort={handleSort}
-                selectable={isManager}
-                selectedIds={selectedIds}
-                onToggleSelect={toggleSelect}
-                onToggleSelectAll={toggleSelectAll}
-                allSelected={allSelected}
-                expandedId={expandedId}
-                onToggleExpand={(id) =>
-                  setExpandedId((cur) => (cur === id ? null : id))
-                }
-                renderExpanded={(lead) => (
-                  <ExpandedLeadRow
-                    lead={lead}
-                    role={viewer?.role}
-                    onChange={handleFieldChange}
-                    groups={groups}
-                  />
-                )}
-                onOpenDetail={setDetailLead}
-              />
-            </div>
+            <LeadTable
+              leads={pagedLeads}
+              columns={visibleColumns}
+              widths={widths}
+              onResize={handleResize}
+              sortBy={sort.key}
+              sortDir={sort.dir}
+              onSort={handleSort}
+              selectable={canReassign}
+              selectedIds={selectedIds}
+              onToggleSelect={toggleSelect}
+              onToggleSelectAll={toggleSelectAll}
+              allSelected={allSelected}
+              expandedId={expandedId}
+              onToggleExpand={(id) =>
+                setExpandedId((cur) => (cur === id ? null : id))
+              }
+              renderExpanded={(lead) => (
+                <ExpandedLeadRow
+                  lead={lead}
+                  canEdit={canEditLead(lead)}
+                  canAssign={canReassign}
+                  onChange={handleFieldChange}
+                  groups={groups}
+                />
+              )}
+              onOpenDetail={setDetailLead}
+            />
 
             {/* Pager */}
-            <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-white px-6 py-2.5 text-sm">
+            <div className="sticky bottom-0 flex items-center justify-between gap-3 border-t border-slate-200 bg-white px-6 py-2.5 text-sm">
               <span className="text-slate-500">
                 {visibleLeads.length === 0 ? (
                   "No leads"
@@ -516,7 +643,8 @@ export default function LeadsPage() {
 
       <LeadDetailSidebar
         lead={detailLead}
-        role={viewer?.role}
+        canEdit={detailLead ? canEditLead(detailLead) : false}
+        canAssign={canReassign}
         groups={groups}
         onChange={handleFieldChange}
         onClose={() => setDetailLead(null)}
