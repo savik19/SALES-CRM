@@ -9,6 +9,7 @@ import LeadDetailSidebar from "@/components/leads/LeadDetailSidebar";
 import { getLeads, updateLead } from "@/lib/leadsApi";
 import {
   USER_BY_ID,
+  LEAD_STATUSES,
   PRIORITIES,
   INDUSTRIES,
   LEAD_SOURCES,
@@ -24,7 +25,18 @@ import {
   isOnOrBefore,
 } from "@/lib/format";
 
+// The Pipeline is a Kanban of deals being actively worked, so it deliberately
+// omits the high-volume top-of-funnel bucket: a lead at "New" (assigned but not
+// yet worked) can number in the thousands and belongs in the Lead Table — with
+// its count surfaced by the New/Uncontacted analytics — not as a wall of cards
+// here. Every other stage is shown and is filterable via the Status filter.
+const EXCLUDED_PIPELINE_STATUSES = new Set(["New"]);
+const PIPELINE_STATUSES = LEAD_STATUSES.filter(
+  (s) => !EXCLUDED_PIPELINE_STATUSES.has(s)
+);
+
 const EMPTY_FILTERS = {
+  leadStatus: [],
   priority: [],
   industry: [],
   city: [],
@@ -132,6 +144,15 @@ export default function PipelinePage() {
     [roleScoped, period]
   );
 
+  // The board's working set: period leads that have entered the funnel (i.e. not
+  // "New"). Everything below — stats, filters, cards — is derived from this, so
+  // the excluded top-of-funnel volume never lands on the board or its counts.
+  const pipelineScoped = useMemo(
+    () =>
+      periodScoped.filter((l) => !EXCLUDED_PIPELINE_STATUSES.has(l.leadStatus)),
+    [periodScoped]
+  );
+
   // ---- Filters -------------------------------------------------------------
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState(EMPTY_FILTERS);
@@ -171,11 +192,12 @@ export default function PipelinePage() {
   const cityOptions = useMemo(
     () =>
       Array.from(
-        new Set(periodScoped.map((l) => l.city).filter(Boolean))
+        new Set(pipelineScoped.map((l) => l.city).filter(Boolean))
       ).sort(),
-    [periodScoped]
+    [pipelineScoped]
   );
   const filterOptions = {
+    leadStatus: PIPELINE_STATUSES,
     priority: PRIORITIES,
     industry: INDUSTRIES,
     city: cityOptions,
@@ -188,7 +210,7 @@ export default function PipelinePage() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return periodScoped.filter((lead) => {
+    return pipelineScoped.filter((lead) => {
       for (const key of Object.keys(EMPTY_FILTERS)) {
         const sel = filters[key];
         if (sel.length > 0 && !sel.includes(lead[key])) return false;
@@ -201,15 +223,26 @@ export default function PipelinePage() {
       }
       return true;
     });
-  }, [periodScoped, search, filters]);
+  }, [pipelineScoped, search, filters]);
 
-  // ---- Period stats (over the period book, independent of search/filters) ---
+  // Which status columns to render: the ones the user selected (kept in funnel
+  // order), or every pipeline stage when nothing is selected. This drives the
+  // board's columns so unselected stages disappear rather than sitting empty.
+  const visibleStatuses = useMemo(
+    () =>
+      filters.leadStatus.length
+        ? PIPELINE_STATUSES.filter((s) => filters.leadStatus.includes(s))
+        : PIPELINE_STATUSES,
+    [filters.leadStatus]
+  );
+
+  // ---- Pipeline stats (over the board book, independent of search/filters) --
   const stats = useMemo(() => {
     let openValue = 0;
     let won = 0;
     let wonValue = 0;
     let overdue = 0;
-    for (const l of periodScoped) {
+    for (const l of pipelineScoped) {
       if (isWon(l.leadStatus)) {
         won += 1;
         wonValue += Number(l.closedAmount) || 0;
@@ -218,8 +251,8 @@ export default function PipelinePage() {
         if (isOnOrBefore(l.nextFollowUpDate)) overdue += 1;
       }
     }
-    return { total: periodScoped.length, openValue, won, wonValue, overdue };
-  }, [periodScoped]);
+    return { total: pipelineScoped.length, openValue, won, wonValue, overdue };
+  }, [pipelineScoped]);
 
   // ---- Edit permissions (by role + focus) — same model as the Lead Table ----
   // A status change (drag or the card's select) is an edit, so it's gated by the
@@ -320,11 +353,15 @@ export default function PipelinePage() {
           </div>
         ) : filtered.length === 0 ? (
           <div className="px-6 py-20 text-center text-sm text-slate-500">
-            No leads for this period. Try another month or widen the date range.
+            No pipeline leads for this selection. Try another month, widen the
+            date range, or clear the status filter. (New, unworked leads live in
+            the Lead Table.)
           </div>
         ) : (
           <PipelineBoard
             leads={filtered}
+            statuses={visibleStatuses}
+            moveOptions={PIPELINE_STATUSES}
             onMove={handleMove}
             onOpen={setDetailLead}
             canEdit={canEditLead}
