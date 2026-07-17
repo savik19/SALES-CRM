@@ -95,6 +95,18 @@ day = From == To, or an open-ended From/To) that filters rows by
 the analytics (those use the month selector). By default no range is set, so the
 table shows **all** leads with the newest-assigned (`assignedDate` desc) on top.
 
+**Pipeline period.** The Pipeline board is scoped to a **period** — a month
+(default = current month, previous months selectable) or a calendar range that
+overrides the month. A lead is "in the period" when **any** of its activity dates
+(`assignedDate`, `lastContactDate`, `nextFollowUpDate`, `closedDate`) falls in it
+(`leadInPeriod` in `src/lib/analytics.js`). This shows the leads actually worked
+in that window instead of every lead ever created. The board's overview stats
+(In pipeline, Open value = Σ `quotedAmount` of active leads, Won, Won value,
+Overdue) are computed over that period set. A status change on the board (drag or
+the card's select) is a normal lead edit and obeys the same permission model
+below — read-only leads (a DSC's lead seen by a manager, or anything while a
+manager is focused on a DSC) cannot be dragged or restaged.
+
 ### TeamMember / User
 
 Managed by the Admin on the **User Management** screen. `assignedDscId` on a Lead
@@ -298,6 +310,11 @@ training salary instead. Deductions apply to gross to get net take-home.
 - **DSC** — sees ONLY their own leads (others + unassigned are hidden, not greyed);
   can edit their own leads' fields and status; **cannot** assign/reassign or import,
   and has no Focus switcher.
+
+The **same Focus switcher and permission model apply to the Pipeline** board: a
+manager can focus it on the team, their own leads, or one DSC (read-only); a DSC
+sees only their own board. Because a status change is a lead edit, only leads the
+viewer may edit are draggable / restageable.
 
 `assignedDscId` holds exactly **one** id (single assignee — no multiple assignees)
 or `""` for unassigned, and is set only by a manager. The frontend has a demo role

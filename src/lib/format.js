@@ -109,6 +109,24 @@ export function inMonth(iso, ym) {
   return !!iso && !!ym && String(iso).slice(0, 7) === ym;
 }
 
+// The inclusive ISO bounds { from, to } spanning a whole "YYYY-MM" month, e.g.
+// "2026-07" -> { from: "2026-07-01", to: "2026-07-31" }.
+export function monthRange(ym) {
+  if (!ym) return { from: "", to: "" };
+  const [y, m] = ym.split("-").map(Number);
+  const last = new Date(y, m, 0).getDate();
+  return { from: `${ym}-01`, to: `${ym}-${String(last).padStart(2, "0")}` };
+}
+
+// Is an ISO date within [from, to] inclusive? An empty bound is open on that
+// side. A missing date is never in range. (String compare is safe for ISO.)
+export function isoInRange(iso, from, to) {
+  if (!iso) return false;
+  if (from && iso < from) return false;
+  if (to && iso > to) return false;
+  return true;
+}
+
 // Is a date today or in the past? (drives the "overdue" follow-up styling)
 // `today` is injectable so callers can keep renders deterministic.
 export function isOnOrBefore(iso, today = new Date()) {

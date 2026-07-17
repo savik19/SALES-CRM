@@ -23,7 +23,12 @@ import {
 import { useColumnConfig } from "@/lib/columnConfig";
 import { useActiveDscs, useUsers } from "@/lib/usersConfig";
 import { getLeads, updateLead, assignLeads } from "@/lib/leadsApi";
-import { discountPct, recentMonths, monthKeyOf } from "@/lib/format";
+import {
+  discountPct,
+  recentMonths,
+  monthKeyOf,
+  isoInRange,
+} from "@/lib/format";
 import {
   LEAD_STATUSES,
   PRIORITIES,
@@ -105,13 +110,10 @@ function compareLeads(a, b, column, dir) {
 
 // ---- Follow-up date range (calendar filter) --------------------------------
 // True when `iso` (a lead's follow-up date) is within [from, to] inclusive.
-// Empty from/to = open-ended; both empty = no filter. A single day = from == to.
+// Both empty = no filter (all leads). A single day = from == to.
 function inDateRange(iso, from, to) {
   if (!from && !to) return true;
-  if (!iso) return false;
-  if (from && iso < from) return false;
-  if (to && iso > to) return false;
-  return true;
+  return isoInRange(iso, from, to);
 }
 
 export default function LeadsPage() {
@@ -143,6 +145,14 @@ export default function LeadsPage() {
       ? dscs.find((d) => d.id === effFocus)
       : null;
   const focusIsDsc = !!focusDsc;
+
+  // If the focused DSC is deactivated (drops out of the active list), fall back
+  // to the team view instead of silently showing the manager's own leads.
+  useEffect(() => {
+    if (isManager && focus !== "team" && focus !== "self" && !focusDsc) {
+      setFocus("team");
+    }
+  }, [isManager, focus, focusDsc]);
 
   const { config } = useCompConfig();
   const [showAnalytics, setShowAnalytics] = useState(true);
@@ -223,10 +233,18 @@ export default function LeadsPage() {
   useEffect(() => {
     setSelectedIds(new Set());
     setExpandedId(null);
-    if (isManager) return;
-    // DSCs never filter/select by DSC.
-    setFilters((f) => ({ ...f, assignedDscId: [] }));
   }, [viewerId, isManager]);
+
+  // The DSC filter only shows in team focus. Drop any DSC selection when it's
+  // hidden (a DSC viewer, or a manager focused on self / a single DSC), so it
+  // can't silently narrow the table with no visible control or chip to clear it.
+  useEffect(() => {
+    if (effFocus !== "team") {
+      setFilters((f) =>
+        f.assignedDscId.length ? { ...f, assignedDscId: [] } : f
+      );
+    }
+  }, [effFocus]);
 
   function handleFilterChange(key, values) {
     setFilters((f) => ({ ...f, [key]: values }));
@@ -548,7 +566,7 @@ export default function LeadsPage() {
             onColumnsChange={setVisibleCols}
             columnGroups={groups}
             columnKeys={colKeys}
-            showDscFilter={isManager}
+            showDscFilter={isManager && effFocus === "team"}
             canImport={isManager}
             onImport={() => setImportOpen(true)}
           />

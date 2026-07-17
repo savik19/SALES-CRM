@@ -2,30 +2,29 @@
 
 import MultiSelectDropdown from "@/components/leads/MultiSelectDropdown";
 import { dscName } from "@/data/mockLeads";
-import { matchesDateWindow } from "@/lib/dateFilters";
+import { formatINR, monthLabel } from "@/lib/format";
 
-// Clickable stat pill in the overview strip — doubles as the follow-up filter.
-function StatPill({ label, value, tone, active, onClick }) {
+// Read-only stat in the overview strip.
+function Stat({ label, value, tone = "slate", title }) {
   const tones = {
-    slate: "text-slate-700",
+    slate: "text-slate-800",
     red: "text-red-600",
     amber: "text-amber-600",
+    green: "text-green-600",
     brand: "text-brand-700",
   };
-  const ring = active ? "ring-2 ring-brand ring-offset-1" : "";
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex min-w-[7rem] items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left hover:border-brand ${ring}`}
+    <div
+      className="min-w-[7rem] rounded-lg border border-slate-200 bg-white px-3 py-2"
+      title={title}
     >
-      <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
         {label}
-      </span>
-      <span className={`text-lg font-semibold ${tones[tone] || tones.slate}`}>
+      </div>
+      <div className={`text-lg font-semibold ${tones[tone] || tones.slate}`}>
         {value}
-      </span>
-    </button>
+      </div>
+    </div>
   );
 }
 
@@ -37,47 +36,45 @@ const FILTER_DEFS = [
   { key: "assignedDscId", label: "DSC" },
 ];
 
-const ACTIVITY_PRESETS = [
-  { key: "last7", label: "Last 7 days" },
-  { key: "last30", label: "Last 30 days" },
-];
-
 function chipLabel(key, value) {
   return key === "assignedDscId" ? dscName(value) : value;
 }
 
-// Pipeline toolbar: an overview strip (clickable follow-up stats) + a filter bar
-// (search, multi-select filters, a "last activity" range), + active chips.
+// Label for the custom-range chip: a single day, an open-ended range, or a
+// closed range.
+function rangeChipLabel(from, to) {
+  if (from && to) return from === to ? from : `${from} – ${to}`;
+  if (from) return `from ${from}`;
+  return `until ${to}`;
+}
+
+// Pipeline toolbar: a period control (month, or a calendar range) + an overview
+// strip of period stats, then a filter bar (search + multi-selects) + chips.
+// Fully controlled by the page.
 export default function PipelineToolbar({
-  scoped,
   count,
-  total,
+  stats,
   search,
   onSearch,
-  followUp,
-  onFollowUp,
-  activity,
-  onActivity,
+  month,
+  months,
+  onMonth,
+  dateFrom,
+  dateTo,
+  onDateFrom,
+  onDateTo,
   filters,
   onFilterChange,
   options,
   showDscFilter,
   onClearAll,
 }) {
-  // Overview counts over the whole (role-scoped) book, independent of filters.
-  const overdue = scoped.filter((l) =>
-    matchesDateWindow(l.nextFollowUpDate, "overdue")
-  ).length;
-  const dueToday = scoped.filter((l) =>
-    matchesDateWindow(l.nextFollowUpDate, "today")
-  ).length;
-  const thisWeek = scoped.filter((l) =>
-    matchesDateWindow(l.nextFollowUpDate, "week")
-  ).length;
-
   const filterDefs = showDscFilter
     ? FILTER_DEFS
     : FILTER_DEFS.filter((d) => d.key !== "assignedDscId");
+
+  // A custom calendar range overrides the month selector.
+  const customPeriod = Boolean(dateFrom || dateTo);
 
   const activeChips = [];
   for (const def of filterDefs)
@@ -87,57 +84,139 @@ export default function PipelineToolbar({
         value: v,
         label: `${def.label}: ${chipLabel(def.key, v)}`,
       });
-  if (activity) {
-    const a = ACTIVITY_PRESETS.find((p) => p.key === activity);
+  if (customPeriod)
     activeChips.push({
-      key: "__activity",
-      value: activity,
-      label: `Activity: ${a?.label}`,
+      key: "__period",
+      value: `${dateFrom}|${dateTo}`,
+      label: `Period: ${rangeChipLabel(dateFrom, dateTo)}`,
     });
-  }
 
   function removeChip(chip) {
-    if (chip.key === "__activity") onActivity("");
-    else
+    if (chip.key === "__period") {
+      onDateFrom("");
+      onDateTo("");
+    } else
       onFilterChange(
         chip.key,
         filters[chip.key].filter((v) => v !== chip.value)
       );
   }
 
+  // Keep the custom range coherent (from ≤ to).
+  function setFrom(v) {
+    onDateFrom(v);
+    if (v && dateTo && v > dateTo) onDateTo("");
+  }
+  function setTo(v) {
+    onDateTo(v);
+    if (v && dateFrom && v < dateFrom) onDateFrom("");
+  }
+
   const hasActive =
-    activeChips.length > 0 || followUp || search.trim().length > 0;
+    activeChips.length > 0 || search.trim().length > 0 || customPeriod;
+
+  const periodLabel = customPeriod
+    ? rangeChipLabel(dateFrom, dateTo)
+    : monthLabel(month);
 
   return (
     <div className="border-b border-slate-200 bg-white">
-      {/* Overview strip */}
-      <div className="flex flex-wrap items-center gap-2 px-6 pt-4">
-        <StatPill label="Total" value={total} tone="slate" />
-        <StatPill
-          label="Overdue"
-          value={overdue}
-          tone="red"
-          active={followUp === "overdue"}
-          onClick={() => onFollowUp(followUp === "overdue" ? "" : "overdue")}
-        />
-        <StatPill
-          label="Due today"
-          value={dueToday}
-          tone="amber"
-          active={followUp === "today"}
-          onClick={() => onFollowUp(followUp === "today" ? "" : "today")}
-        />
-        <StatPill
-          label="This week"
-          value={thisWeek}
-          tone="brand"
-          active={followUp === "week"}
-          onClick={() => onFollowUp(followUp === "week" ? "" : "week")}
-        />
+      {/* Period control */}
+      <div className="flex flex-wrap items-center gap-3 px-6 pt-4">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-slate-500">Show</span>
+          <select
+            value={month}
+            disabled={customPeriod}
+            onChange={(e) => onMonth(e.target.value)}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand disabled:bg-slate-100 disabled:text-slate-400"
+            title="Show leads worked in this month"
+          >
+            {months.map((ym) => (
+              <option key={ym} value={ym}>
+                {monthLabel(ym)}
+              </option>
+            ))}
+          </select>
+          <span className="text-xs text-slate-400">or</span>
+          <div
+            className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 ${
+              customPeriod ? "border-brand" : "border-slate-300"
+            }`}
+          >
+            <span className="whitespace-nowrap text-xs font-medium text-slate-500">
+              Range
+            </span>
+            <input
+              type="date"
+              value={dateFrom || ""}
+              max={dateTo || undefined}
+              onChange={(e) => setFrom(e.target.value)}
+              aria-label="Period from date"
+              className="rounded border border-slate-200 bg-white px-1.5 py-1 text-sm text-slate-700 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+            />
+            <span className="text-slate-400">–</span>
+            <input
+              type="date"
+              value={dateTo || ""}
+              min={dateFrom || undefined}
+              onChange={(e) => setTo(e.target.value)}
+              aria-label="Period to date"
+              className="rounded border border-slate-200 bg-white px-1.5 py-1 text-sm text-slate-700 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+            />
+            {customPeriod ? (
+              <button
+                type="button"
+                onClick={() => {
+                  onDateFrom("");
+                  onDateTo("");
+                }}
+                className="rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                aria-label="Clear custom range (back to month)"
+                title="Back to month"
+              >
+                ✕
+              </button>
+            ) : null}
+          </div>
+        </div>
         <span className="ml-auto text-sm text-slate-500">
           Showing <span className="font-semibold text-slate-700">{count}</span>{" "}
-          of {total}
+          of {stats.total} · {periodLabel}
         </span>
+      </div>
+
+      {/* Overview strip — period stats */}
+      <div className="flex flex-wrap items-center gap-2 px-6 pt-3">
+        <Stat
+          label="In pipeline"
+          value={stats.total}
+          title="Leads worked in the selected period."
+        />
+        <Stat
+          label="Open value"
+          value={formatINR(stats.openValue)}
+          tone="brand"
+          title="Total quoted value of open (active) leads in the period."
+        />
+        <Stat
+          label="Won"
+          value={stats.won}
+          tone="green"
+          title="Leads won/closed in the period."
+        />
+        <Stat
+          label="Won value"
+          value={formatINR(stats.wonValue)}
+          tone="green"
+          title="Total closed amount of leads won in the period."
+        />
+        <Stat
+          label="Overdue"
+          value={stats.overdue}
+          tone="red"
+          title="Open leads whose next follow-up date is today or in the past."
+        />
       </div>
 
       {/* Filter bar */}
@@ -164,25 +243,6 @@ export default function PipelineToolbar({
             onChange={(vals) => onFilterChange(def.key, vals)}
           />
         ))}
-
-        {/* Last activity range (Last Contact Date) */}
-        <div className="ml-1 inline-flex overflow-hidden rounded-lg border border-slate-300">
-          {ACTIVITY_PRESETS.map((p) => (
-            <button
-              key={p.key}
-              type="button"
-              onClick={() => onActivity(activity === p.key ? "" : p.key)}
-              className={`px-3 py-2 text-sm transition-colors ${
-                activity === p.key
-                  ? "bg-brand text-white"
-                  : "bg-white text-slate-700 hover:bg-slate-50"
-              }`}
-              title="Filter by Last Contact Date"
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
 
         {hasActive ? (
           <button
