@@ -59,6 +59,8 @@ or an `Authorization` header.
   "lostReason": "", // enum — LOST_REASONS; only when leadStatus = "Lost"
   "lastContactDate": "2026-07-09", // ISO date or ""
   "nextFollowUpDate": "2026-07-14", // ISO date or ""
+  "assignedDate": "2026-07-02", // ISO date the lead was assigned to its DSC
+  "closedDate": "2026-07-11", // ISO date a won lead was closed; "" otherwise
   "notes": "Wants a revised quote…", // long text
 }
 ```
@@ -66,6 +68,20 @@ or an `Authorization` header.
 > **Discount %** (schema column 22) is **computed, never stored**:
 > `(quotedAmount − closedAmount) / quotedAmount × 100`. The frontend derives it;
 > do not send it.
+
+**Analytics dates.** The Lead Table analytics are month-filtered and computed
+client-side from the lead dates (`src/lib/analytics.js` → `monthMetrics`). Just
+return accurate dates on each lead and the metrics follow:
+
+- **Total leads** — all leads assigned to the person (all-time; not month-scoped).
+- **New assigned** — `assignedDate` in the selected month.
+- **Contacted** — `lastContactDate` in the month.
+- **Follow-ups due** — `nextFollowUpDate` in the month.
+- **Closed (won)** — a won lead whose `closedDate` is in the month.
+- **Pipeline value** — Σ `quotedAmount` of open leads worked (assigned/contacted)
+  in the month.
+
+Earnings/target for the month use "closed (won) in the month" as the closed count.
 
 ### TeamMember / User
 

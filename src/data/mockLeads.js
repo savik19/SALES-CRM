@@ -288,7 +288,7 @@ export function dscName(id) {
 }
 
 // ---- The mock leads --------------------------------------------------------
-export const MOCK_LEADS = [
+const RAW_LEADS = [
   // --- Unassigned, freshly imported New leads (for the bulk-assign demo) ---
   {
     leadId: "SCRIPT8001",
@@ -1250,3 +1250,38 @@ export const MOCK_LEADS = [
     lostReason: "",
   },
 ];
+
+// ---- Derived lead dates (for month-based analytics) ------------------------
+// Real backends store these; the mock spreads them deterministically over recent
+// months so the month filter has data to show.
+//   assignedDate — when the lead was assigned to its DSC (all leads)
+//   closedDate   — when a won lead was closed (won leads only; "" otherwise)
+// TODO(backend): return real assignedDate/closedDate on each lead.
+const _WON = new Set(["Won", "Project Started", "Project Delivered", "Closed"]);
+const REF_YEAR = 2026;
+const REF_MONTH = 7; // July 2026 — the baseline "current month" for the mock data
+function _ym(monthsBack, day) {
+  let m = REF_MONTH - monthsBack;
+  let y = REF_YEAR;
+  while (m <= 0) {
+    m += 12;
+    y -= 1;
+  }
+  const d = Math.min(28, Math.max(1, day));
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+function _num(id) {
+  const n = parseInt(String(id).replace(/\D/g, ""), 10);
+  return Number.isNaN(n) ? 0 : n;
+}
+function withDates(lead) {
+  const n = _num(lead.leadId);
+  const back = n % 4; // assigned 0–3 months ago
+  const assignedDate = _ym(back, ((n * 7) % 27) + 1);
+  const closedDate = _WON.has(lead.leadStatus)
+    ? _ym(back === 0 ? 0 : n % (back + 1), ((n * 5) % 27) + 1) // same month or newer
+    : "";
+  return { ...lead, assignedDate, closedDate };
+}
+
+export const MOCK_LEADS = RAW_LEADS.map(withDates);

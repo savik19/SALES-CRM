@@ -78,6 +78,37 @@ export function employmentDuration(iso, now = new Date()) {
   return parts.join(" ");
 }
 
+// ---- Month helpers (for the analytics month filter) -----------------------
+
+// "YYYY-MM" key for a date.
+export function monthKeyOf(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+// Friendly label for a "YYYY-MM" key, e.g. "Jul 2026".
+export function monthLabel(ym) {
+  if (!ym) return "";
+  const [y, m] = ym.split("-").map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString("en-GB", {
+    month: "short",
+    year: "numeric",
+  });
+}
+
+// The most recent `count` months as "YYYY-MM" keys, newest first.
+export function recentMonths(count = 6, now = new Date()) {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    out.push(monthKeyOf(new Date(now.getFullYear(), now.getMonth() - i, 1)));
+  }
+  return out;
+}
+
+// Does an ISO date fall in the given "YYYY-MM" month?
+export function inMonth(iso, ym) {
+  return !!iso && !!ym && String(iso).slice(0, 7) === ym;
+}
+
 // Is a date today or in the past? (drives the "overdue" follow-up styling)
 // `today` is injectable so callers can keep renders deterministic.
 export function isOnOrBefore(iso, today = new Date()) {
