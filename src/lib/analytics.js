@@ -6,7 +6,7 @@
 // ---------------------------------------------------------------------------
 
 import { LEAD_STATUSES } from "@/data/mockLeads";
-import { isOnOrBefore, monthsSince } from "@/lib/format";
+import { monthsSince, inMonth } from "@/lib/format";
 
 // A "closed"/won deal = Won or any post-sale status (not Cancelled, which is a
 // won deal that fell apart, and not Lost / On Hold).
@@ -26,36 +26,52 @@ export function isActive(status) {
   return !isWon(status) && !isDead(status) && status !== "On Hold";
 }
 
-// Core lead metrics for any set of leads (a DSC's own, or the whole team).
-export function leadMetrics(leads) {
+// Metrics for a set of leads, scoped to a "YYYY-MM" month `ym`.
+// `totalLeads` is ALL-TIME (every lead ever assigned, any status). Everything
+// else is for the selected month:
+//   newAssigned  — assignedDate in the month
+//   contacted    — lastContactDate in the month (they were worked/called)
+//   followUpsDue — nextFollowUpDate in the month
+//   won          — a won lead whose closedDate is in the month
+//   wonValue     — Σ closedAmount of those won leads
+//   pipelineValue— Σ quotedAmount of OPEN leads worked (contacted/assigned) in
+//                  the month (proposals sent / quotes made)
+// `byStatus` is the current all-time distribution (for the status bars).
+export function monthMetrics(leads, ym) {
   const byStatus = {};
   LEAD_STATUSES.forEach((s) => (byStatus[s] = 0));
+  let newAssigned = 0;
+  let contacted = 0;
+  let followUpsDue = 0;
   let won = 0;
   let wonValue = 0;
   let pipelineValue = 0;
-  let followUpsDue = 0;
 
   for (const l of leads) {
     byStatus[l.leadStatus] = (byStatus[l.leadStatus] || 0) + 1;
-    if (isWon(l.leadStatus)) {
+    if (inMonth(l.assignedDate, ym)) newAssigned += 1;
+    if (inMonth(l.lastContactDate, ym)) contacted += 1;
+    if (inMonth(l.nextFollowUpDate, ym)) followUpsDue += 1;
+    if (isWon(l.leadStatus) && inMonth(l.closedDate, ym)) {
       won += 1;
       wonValue += Number(l.closedAmount) || 0;
-    } else if (isActive(l.leadStatus)) {
+    } else if (
+      isActive(l.leadStatus) &&
+      (inMonth(l.lastContactDate, ym) || inMonth(l.assignedDate, ym))
+    ) {
       pipelineValue += Number(l.quotedAmount) || 0;
     }
-    if (l.nextFollowUpDate && isOnOrBefore(l.nextFollowUpDate))
-      followUpsDue += 1;
   }
 
-  const total = leads.length;
   return {
-    total,
+    totalLeads: leads.length,
     byStatus,
+    newAssigned,
+    contacted,
+    followUpsDue,
     won,
     wonValue,
     pipelineValue,
-    followUpsDue,
-    conversion: total ? (won / total) * 100 : 0,
   };
 }
 
@@ -140,11 +156,12 @@ export function personEarnings({
   };
 }
 
-// Full analytics for a single DSC (their own leads only), using their effective
-// package (so a per-person override changes only their numbers).
-export function dscAnalytics(dsc, allLeads, config) {
+// Full analytics for a single DSC (their own leads only) for month `ym`, using
+// their effective package (so a per-person override changes only their numbers).
+// Earnings are month-scoped: the target gate uses leads won in `ym`.
+export function dscAnalytics(dsc, allLeads, config, ym) {
   const own = allLeads.filter((l) => l.assignedDscId === dsc.id);
-  const metrics = leadMetrics(own);
+  const metrics = monthMetrics(own, ym);
   const comp = resolvePersonComp(config, "dsc", dsc);
   const tenureMonths = monthsSince(dsc.joiningDate);
   const inTraining =
@@ -166,11 +183,11 @@ export function dscAnalytics(dsc, allLeads, config) {
   };
 }
 
-// Full team analytics for the BDM / Admin (whole company). `manager` is the
-// viewer (a BDM or Admin) so the BDM earnings card uses their effective package.
-export function teamAnalytics(allLeads, dscs, config, manager) {
-  const companyMetrics = leadMetrics(allLeads);
-  const perDsc = dscs.map((d) => dscAnalytics(d, allLeads, config));
+// Full team analytics for the BDM / Admin (whole company) for month `ym`.
+// `manager` is the viewer so the BDM earnings card uses their effective package.
+export function teamAnalytics(allLeads, dscs, config, manager, ym) {
+  const companyMetrics = monthMetrics(allLeads, ym);
+  const perDsc = dscs.map((d) => dscAnalytics(d, allLeads, config, ym));
   const bdmComp = resolvePersonComp(config, "bdm", manager);
   const bdmEarnings = personEarnings({
     role: "bdm",

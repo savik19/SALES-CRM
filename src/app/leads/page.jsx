@@ -22,7 +22,7 @@ import {
 import { useColumnConfig } from "@/lib/columnConfig";
 import { useActiveDscs, useUsers } from "@/lib/usersConfig";
 import { getLeads, updateLead, assignLeads } from "@/lib/leadsApi";
-import { discountPct } from "@/lib/format";
+import { discountPct, recentMonths, monthKeyOf } from "@/lib/format";
 import {
   LEAD_STATUSES,
   PRIORITIES,
@@ -40,6 +40,8 @@ const EMPTY_FILTERS = {
   assignedDscId: [],
   leadSource: [],
 };
+
+const PAGE_SIZE = 20; // rows per page in the lead table
 
 // ---- Sorting ---------------------------------------------------------------
 function compareNumbers(a, b, factor) {
@@ -137,6 +139,9 @@ export default function LeadsPage() {
 
   const { config } = useCompConfig();
   const [showAnalytics, setShowAnalytics] = useState(true);
+  // Month filter for the analytics (default = current month; last 6 selectable).
+  const monthOptions = useMemo(() => recentMonths(6), []);
+  const [analyticsMonth, setAnalyticsMonth] = useState(() => monthKeyOf());
 
   // ---- Editable column config (labels, aliases, add/remove) ----------------
   const { columns } = useColumnConfig();
@@ -175,6 +180,9 @@ export default function LeadsPage() {
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [importOpen, setImportOpen] = useState(false);
   const [detailLead, setDetailLead] = useState(null);
+  // Pagination — keeps the table a bounded height so it stays usable under the
+  // analytics panel.
+  const [page, setPage] = useState(1);
 
   // Reconcile the visible set when columns are added/removed in the config:
   // brand-new columns show by default; removed columns drop out. Deselections
@@ -240,12 +248,19 @@ export default function LeadsPage() {
   );
 
   // Analytics data — DSC sees their own; manager (BDM/Admin) sees the team.
+  // Scoped to the selected month (except all-time totals).
   const analytics = useMemo(() => {
     if (!viewer) return null;
     return isManager
-      ? { variant: "team", data: teamAnalytics(allLeads, dscs, config, viewer) }
-      : { variant: "dsc", data: dscAnalytics(viewer, allLeads, config) };
-  }, [viewer, isManager, allLeads, dscs, config]);
+      ? {
+          variant: "team",
+          data: teamAnalytics(allLeads, dscs, config, viewer, analyticsMonth),
+        }
+      : {
+          variant: "dsc",
+          data: dscAnalytics(viewer, allLeads, config, analyticsMonth),
+        };
+  }, [viewer, isManager, allLeads, dscs, config, analyticsMonth]);
 
   const cityOptions = useMemo(
     () =>
@@ -296,6 +311,27 @@ export default function LeadsPage() {
     }
     return rows;
   }, [roleScoped, search, filters, datePreset, sort, searchKeys, colByKey]);
+
+  // ---- Pagination ----------------------------------------------------------
+  const pageCount = Math.max(1, Math.ceil(visibleLeads.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const pagedLeads = useMemo(
+    () =>
+      visibleLeads.slice(
+        (currentPage - 1) * PAGE_SIZE,
+        currentPage * PAGE_SIZE
+      ),
+    [visibleLeads, currentPage]
+  );
+  // Back to page 1 whenever the result set changes (filters/search/sort/viewer).
+  useEffect(() => {
+    setPage(1);
+  }, [search, filters, datePreset, sort, viewerId]);
+
+  const rangeStart = visibleLeads.length
+    ? (currentPage - 1) * PAGE_SIZE + 1
+    : 0;
+  const rangeEnd = Math.min(currentPage * PAGE_SIZE, visibleLeads.length);
 
   // ---- Selection (BDM) -----------------------------------------------------
   const allSelected =
@@ -362,6 +398,9 @@ export default function LeadsPage() {
           data={analytics.data}
           collapsed={!showAnalytics}
           onToggle={() => setShowAnalytics((s) => !s)}
+          month={analyticsMonth}
+          months={monthOptions}
+          onMonthChange={setAnalyticsMonth}
         />
       ) : null}
 
@@ -393,39 +432,85 @@ export default function LeadsPage() {
         />
       ) : null}
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex flex-1 flex-col overflow-hidden">
         {loading ? (
           <div className="px-6 py-20 text-center text-sm text-slate-500">
             Loading leads…
           </div>
         ) : (
-          <LeadTable
-            leads={visibleLeads}
-            columns={visibleColumns}
-            widths={widths}
-            onResize={handleResize}
-            sortBy={sort.key}
-            sortDir={sort.dir}
-            onSort={handleSort}
-            selectable={isManager}
-            selectedIds={selectedIds}
-            onToggleSelect={toggleSelect}
-            onToggleSelectAll={toggleSelectAll}
-            allSelected={allSelected}
-            expandedId={expandedId}
-            onToggleExpand={(id) =>
-              setExpandedId((cur) => (cur === id ? null : id))
-            }
-            renderExpanded={(lead) => (
-              <ExpandedLeadRow
-                lead={lead}
-                role={viewer?.role}
-                onChange={handleFieldChange}
-                groups={groups}
+          <>
+            <div className="flex-1 overflow-y-auto">
+              <LeadTable
+                leads={pagedLeads}
+                columns={visibleColumns}
+                widths={widths}
+                onResize={handleResize}
+                sortBy={sort.key}
+                sortDir={sort.dir}
+                onSort={handleSort}
+                selectable={isManager}
+                selectedIds={selectedIds}
+                onToggleSelect={toggleSelect}
+                onToggleSelectAll={toggleSelectAll}
+                allSelected={allSelected}
+                expandedId={expandedId}
+                onToggleExpand={(id) =>
+                  setExpandedId((cur) => (cur === id ? null : id))
+                }
+                renderExpanded={(lead) => (
+                  <ExpandedLeadRow
+                    lead={lead}
+                    role={viewer?.role}
+                    onChange={handleFieldChange}
+                    groups={groups}
+                  />
+                )}
+                onOpenDetail={setDetailLead}
               />
-            )}
-            onOpenDetail={setDetailLead}
-          />
+            </div>
+
+            {/* Pager */}
+            <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-white px-6 py-2.5 text-sm">
+              <span className="text-slate-500">
+                {visibleLeads.length === 0 ? (
+                  "No leads"
+                ) : (
+                  <>
+                    Showing{" "}
+                    <span className="font-semibold text-slate-700">
+                      {rangeStart}–{rangeEnd}
+                    </span>{" "}
+                    of{" "}
+                    <span className="font-semibold text-slate-700">
+                      {visibleLeads.length}
+                    </span>{" "}
+                    leads
+                  </>
+                )}
+              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-400">
+                  Page {currentPage} of {pageCount}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage <= 1}
+                  className="rounded-md border border-slate-300 px-3 py-1 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Prev
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                  disabled={currentPage >= pageCount}
+                  className="rounded-md border border-slate-300 px-3 py-1 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          </>
         )}
       </div>
 

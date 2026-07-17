@@ -1,11 +1,28 @@
 "use client";
 
-import { formatINR } from "@/lib/format";
+import { formatINR, monthLabel } from "@/lib/format";
 import { isWon, isDead } from "@/lib/analytics";
 
 // ---- small building blocks -------------------------------------------------
 
-function StatTile({ label, value, sub, tone = "default" }) {
+// Hover info: a small "i" that reveals an explanation of the metric.
+function InfoDot({ text }) {
+  return (
+    <span className="group relative ml-1 inline-flex align-middle">
+      <span className="flex h-3.5 w-3.5 cursor-help items-center justify-center rounded-full border border-slate-300 text-[9px] font-bold leading-none text-slate-400">
+        i
+      </span>
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-1.5 hidden w-56 -translate-x-1/2 rounded-md bg-slate-800 px-2.5 py-1.5 text-[11px] font-normal normal-case leading-snug tracking-normal text-white shadow-lg group-hover:block"
+      >
+        {text}
+      </span>
+    </span>
+  );
+}
+
+function StatTile({ label, value, sub, tone = "default", info }) {
   const valueTone =
     tone === "good"
       ? "text-green-600"
@@ -16,8 +33,9 @@ function StatTile({ label, value, sub, tone = "default" }) {
           : "text-slate-900";
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-3">
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-        {label}
+      <div className="flex items-center text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+        <span>{label}</span>
+        {info ? <InfoDot text={info} /> : null}
       </div>
       <div className={`mt-1 text-xl font-semibold ${valueTone}`}>{value}</div>
       {sub ? <div className="mt-0.5 text-xs text-slate-400">{sub}</div> : null}
@@ -26,14 +44,15 @@ function StatTile({ label, value, sub, tone = "default" }) {
 }
 
 // A target progress meter: closed / target with a filled bar.
-function TargetMeter({ label, done, target }) {
+function TargetMeter({ label, done, target, info }) {
   const pct = target > 0 ? Math.min(100, (done / target) * 100) : 0;
   const met = done >= target && target > 0;
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-3">
       <div className="flex items-baseline justify-between">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-          {label}
+        <span className="flex items-center text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+          <span>{label}</span>
+          {info ? <InfoDot text={info} /> : null}
         </span>
         <span
           className={`text-xs font-semibold ${met ? "text-green-600" : "text-slate-500"}`}
@@ -59,7 +78,7 @@ function money(n) {
 }
 
 // Earnings breakdown card. Performance Pay + Commission are gated on the target.
-function EarningsCard({ title, e }) {
+function EarningsCard({ title, e, monthLbl }) {
   const fixedPct = e.fixedPortionPct ?? 75;
   const rows = e.inTraining
     ? [{ label: "Training salary", value: e.fixed }]
@@ -130,7 +149,7 @@ function EarningsCard({ title, e }) {
       </dl>
       {!e.inTraining && !e.targetMet && e.atRisk > 0 ? (
         <p className="mt-2 text-xs text-amber-600">
-          {money(e.atRisk)} unlocks when {e.target} deals close this month
+          {money(e.atRisk)} unlocks when {e.target} deals close in {monthLbl}{" "}
           (currently {e.closedCount}).
         </p>
       ) : null}
@@ -144,8 +163,9 @@ function StatusBars({ byStatus, total }) {
   if (!rows.length) return null;
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4">
-      <h4 className="mb-2 text-sm font-semibold text-slate-800">
+      <h4 className="mb-2 flex items-center text-sm font-semibold text-slate-800">
         Leads by status
+        <InfoDot text="Current distribution of all leads by status (all-time, not limited to the selected month)." />
       </h4>
       <div className="space-y-1.5">
         {rows.map(([status, n]) => {
@@ -181,37 +201,64 @@ function StatusBars({ byStatus, total }) {
 
 // ---- views -----------------------------------------------------------------
 
-function DscView({ name, data }) {
+function DscView({ name, monthLbl, data }) {
   const { metrics: m, earnings: e } = data;
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <StatTile label="My leads" value={m.total} />
-        <StatTile label="Closed (won)" value={m.won} tone="good" />
-        <StatTile label="Conversion" value={`${Math.round(m.conversion)}%`} />
+        <StatTile
+          label="Total leads"
+          value={m.totalLeads}
+          info={`Every lead ever assigned to you — any status (new, won, lost…). Not limited to ${monthLbl}.`}
+        />
+        <StatTile
+          label="New assigned"
+          value={m.newAssigned}
+          info={`Leads newly assigned to you in ${monthLbl}.`}
+        />
+        <StatTile
+          label="Contacted"
+          value={m.contacted}
+          info={`Leads you contacted (last contact date falls in ${monthLbl}) — e.g. called or messaged.`}
+        />
         <StatTile
           label="Follow-ups due"
           value={m.followUpsDue}
           tone={m.followUpsDue ? "warn" : "default"}
+          info={`Leads with a follow-up scheduled in ${monthLbl}.`}
         />
-        <StatTile label="Pipeline value" value={money(m.pipelineValue)} />
-        <StatTile label="Won value" value={money(m.wonValue)} tone="good" />
+        <StatTile
+          label="Closed (won)"
+          value={m.won}
+          tone="good"
+          info={`Leads you won/closed in ${monthLbl}.`}
+        />
+        <StatTile
+          label="Pipeline value"
+          value={money(m.pipelineValue)}
+          info={`Total quoted value of your open pipeline leads worked in ${monthLbl} (proposals sent / quotations made).`}
+        />
       </div>
       <div className="grid grid-cols-1 items-start gap-3 lg:grid-cols-3">
         <TargetMeter
           label="Monthly leads target"
           done={m.won}
           target={e.target}
+          info={`Leads won in ${monthLbl} vs your monthly target. Meeting it unlocks performance pay + commission.`}
         />
         <div className="lg:col-span-2">
-          <EarningsCard title={`${name} · earnings this month`} e={e} />
+          <EarningsCard
+            title={`${name} · earnings · ${monthLbl}`}
+            e={e}
+            monthLbl={monthLbl}
+          />
         </div>
       </div>
     </div>
   );
 }
 
-function TeamView({ data }) {
+function TeamView({ monthLbl, data }) {
   const {
     companyMetrics: m,
     perDsc,
@@ -222,15 +269,37 @@ function TeamView({ data }) {
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <StatTile label="Team leads" value={m.total} />
-        <StatTile label="Closed (won)" value={m.won} tone="good" />
-        <StatTile label="Conversion" value={`${Math.round(m.conversion)}%`} />
-        <StatTile label="Won value" value={money(m.wonValue)} tone="good" />
-        <StatTile label="Pipeline value" value={money(m.pipelineValue)} />
         <StatTile
-          label="Follow-ups due"
-          value={m.followUpsDue}
-          tone={m.followUpsDue ? "warn" : "default"}
+          label="Total leads"
+          value={m.totalLeads}
+          info="Every lead across the team — any status. Not limited to the selected month."
+        />
+        <StatTile
+          label="New assigned"
+          value={m.newAssigned}
+          info={`Leads newly assigned to the team in ${monthLbl}.`}
+        />
+        <StatTile
+          label="Contacted"
+          value={m.contacted}
+          info={`Leads the team contacted in ${monthLbl}.`}
+        />
+        <StatTile
+          label="Closed (won)"
+          value={m.won}
+          tone="good"
+          info={`Leads the team won/closed in ${monthLbl}.`}
+        />
+        <StatTile
+          label="Won value"
+          value={money(m.wonValue)}
+          tone="good"
+          info={`Total closed amount of leads won in ${monthLbl}.`}
+        />
+        <StatTile
+          label="Pipeline value"
+          value={money(m.pipelineValue)}
+          info={`Total quoted value of open pipeline leads worked in ${monthLbl}.`}
         />
       </div>
 
@@ -239,9 +308,10 @@ function TeamView({ data }) {
           label="Company monthly target"
           done={companyClosed}
           target={companyTarget}
+          info={`Team leads won in ${monthLbl} vs the company monthly target.`}
         />
         <div className="lg:col-span-2">
-          <StatusBars byStatus={m.byStatus} total={m.total} />
+          <StatusBars byStatus={m.byStatus} total={m.totalLeads} />
         </div>
       </div>
 
@@ -251,8 +321,12 @@ function TeamView({ data }) {
           <thead className="bg-slate-50 text-left">
             <tr>
               <th className="px-4 py-2 font-semibold text-slate-600">DSC</th>
-              <th className="px-4 py-2 font-semibold text-slate-600">Leads</th>
-              <th className="px-4 py-2 font-semibold text-slate-600">Closed</th>
+              <th className="px-4 py-2 font-semibold text-slate-600">
+                Total leads
+              </th>
+              <th className="px-4 py-2 font-semibold text-slate-600">
+                Closed ({monthLbl})
+              </th>
               <th className="px-4 py-2 font-semibold text-slate-600">Target</th>
               <th className="px-4 py-2 font-semibold text-slate-600">
                 Won value
@@ -269,7 +343,7 @@ function TeamView({ data }) {
                   {dsc.name}
                 </td>
                 <td className="px-4 py-2 tabular-nums text-slate-600">
-                  {metrics.total}
+                  {metrics.totalLeads}
                 </td>
                 <td className="px-4 py-2 tabular-nums text-slate-600">
                   {metrics.won}
@@ -301,48 +375,78 @@ function TeamView({ data }) {
         </table>
       </div>
 
-      <EarningsCard title="BDM · earnings this month" e={bdmEarnings} />
+      <EarningsCard
+        title={`BDM · earnings · ${monthLbl}`}
+        e={bdmEarnings}
+        monthLbl={monthLbl}
+      />
     </div>
   );
 }
 
 // Role-aware, collapsible analytics section. `variant` is "dsc" (own) or "team"
-// (BDM/Admin). `collapsed` + `onToggle` let the user hide/show it in place; the
-// header bar stays visible when collapsed so it can be reopened.
+// (BDM/Admin). A month filter scopes the figures; `collapsed`/`onToggle` hide it.
 export default function AnalyticsPanel({
   variant,
   dscName,
   data,
   collapsed,
   onToggle,
+  month,
+  months,
+  onMonthChange,
 }) {
+  const monthLbl = monthLabel(month);
   return (
     <section className="border-b border-slate-200 bg-slate-50">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex w-full items-center gap-2 px-6 py-3 text-left"
-        aria-expanded={!collapsed}
-      >
-        <span
-          className={`text-slate-400 transition-transform ${collapsed ? "" : "rotate-90"}`}
+      <div className="flex items-center gap-2 px-6 py-3">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex items-center gap-2 text-left"
+          aria-expanded={!collapsed}
         >
-          ▸
-        </span>
-        <h3 className="text-sm font-semibold text-slate-700">
-          {variant === "dsc" ? "My performance" : "Team performance"}
-        </h3>
-        <span className="text-xs text-slate-400">· this month</span>
-        <span className="ml-auto text-xs font-medium text-slate-400">
-          {collapsed ? "Show" : "Hide"}
-        </span>
-      </button>
+          <span
+            className={`text-slate-400 transition-transform ${collapsed ? "" : "rotate-90"}`}
+          >
+            ▸
+          </span>
+          <h3 className="text-sm font-semibold text-slate-700">
+            {variant === "dsc" ? "My performance" : "Team performance"}
+          </h3>
+        </button>
+
+        <div className="ml-auto flex items-center gap-3">
+          <label className="flex items-center gap-1.5 text-xs text-slate-500">
+            <span className="hidden sm:inline">Month</span>
+            <select
+              value={month}
+              onChange={(e) => onMonthChange(e.target.value)}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+            >
+              {months.map((ym) => (
+                <option key={ym} value={ym}>
+                  {monthLabel(ym)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={onToggle}
+            className="text-xs font-medium text-slate-400 hover:text-slate-600"
+          >
+            {collapsed ? "Show" : "Hide"}
+          </button>
+        </div>
+      </div>
+
       {!collapsed ? (
         <div className="px-6 pb-4">
           {variant === "dsc" ? (
-            <DscView name={dscName} data={data} />
+            <DscView name={dscName} monthLbl={monthLbl} data={data} />
           ) : (
-            <TeamView data={data} />
+            <TeamView monthLbl={monthLbl} data={data} />
           )}
         </div>
       ) : null}
