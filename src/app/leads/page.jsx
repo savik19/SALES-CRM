@@ -146,6 +146,14 @@ export default function LeadsPage() {
       : null;
   const focusIsDsc = !!focusDsc;
 
+  // If the focused DSC is deactivated (drops out of the active list), fall back
+  // to the team view instead of silently showing the manager's own leads.
+  useEffect(() => {
+    if (isManager && focus !== "team" && focus !== "self" && !focusDsc) {
+      setFocus("team");
+    }
+  }, [isManager, focus, focusDsc]);
+
   const { config } = useCompConfig();
   const [showAnalytics, setShowAnalytics] = useState(true);
   // Month filter for the analytics (default = current month; last 6 selectable).
@@ -225,10 +233,18 @@ export default function LeadsPage() {
   useEffect(() => {
     setSelectedIds(new Set());
     setExpandedId(null);
-    if (isManager) return;
-    // DSCs never filter/select by DSC.
-    setFilters((f) => ({ ...f, assignedDscId: [] }));
   }, [viewerId, isManager]);
+
+  // The DSC filter only shows in team focus. Drop any DSC selection when it's
+  // hidden (a DSC viewer, or a manager focused on self / a single DSC), so it
+  // can't silently narrow the table with no visible control or chip to clear it.
+  useEffect(() => {
+    if (effFocus !== "team") {
+      setFilters((f) =>
+        f.assignedDscId.length ? { ...f, assignedDscId: [] } : f
+      );
+    }
+  }, [effFocus]);
 
   function handleFilterChange(key, values) {
     setFilters((f) => ({ ...f, [key]: values }));

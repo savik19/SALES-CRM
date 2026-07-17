@@ -69,6 +69,14 @@ export default function PipelinePage() {
       : null;
   const focusIsDsc = !!focusDsc;
 
+  // If the focused DSC is deactivated (drops out of the active list), fall back
+  // to the team view instead of silently showing the manager's own leads.
+  useEffect(() => {
+    if (isManager && focus !== "team" && focus !== "self" && !focusDsc) {
+      setFocus("team");
+    }
+  }, [isManager, focus, focusDsc]);
+
   // Keep the demo viewer valid if the Admin deactivates the current one.
   useEffect(() => {
     const active = users.filter((u) => u.status !== "deactivated");
@@ -127,6 +135,17 @@ export default function PipelinePage() {
   // ---- Filters -------------------------------------------------------------
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState(EMPTY_FILTERS);
+
+  // The DSC filter only shows in team focus. Drop any DSC selection when it's
+  // hidden, so it can't silently narrow the board to nothing with no visible
+  // control (or chip) to clear it.
+  useEffect(() => {
+    if (effFocus !== "team") {
+      setFilters((f) =>
+        f.assignedDscId.length ? { ...f, assignedDscId: [] } : f
+      );
+    }
+  }, [effFocus]);
 
   function handleFilterChange(key, values) {
     setFilters((f) => ({ ...f, [key]: values }));
