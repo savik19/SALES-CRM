@@ -26,22 +26,34 @@ export function isActive(status) {
   return !isWon(status) && !isDead(status) && status !== "On Hold";
 }
 
+// A lead counts as "contacted" once it has a last-contact date (it's been
+// called/messaged at least once). Leads still at "New" with no contact are not.
+export function isContacted(lead) {
+  return !!lead.lastContactDate;
+}
+
 // Metrics for a set of leads, scoped to a "YYYY-MM" month `ym`.
-// `totalLeads` is ALL-TIME (every lead ever assigned, any status). Everything
-// else is for the selected month:
-//   newAssigned  — assignedDate in the month
-//   contacted    — lastContactDate in the month (they were worked/called)
-//   followUpsDue — nextFollowUpDate in the month
-//   won          — a won lead whose closedDate is in the month
-//   wonValue     — Σ closedAmount of those won leads
-//   pipelineValue— Σ quotedAmount of OPEN leads worked (contacted/assigned) in
-//                  the month (proposals sent / quotes made)
+// ALL-TIME (any status, not month-scoped):
+//   totalLeads   — every lead ever assigned
+//   uncontacted  — leads never contacted yet (no last-contact date)
+// FOR THE SELECTED MONTH (worked = last-contact OR assigned in the month):
+//   newAssigned      — assignedDate in the month
+//   contacted        — lastContactDate in the month
+//   meetingScheduled — currently "Meeting Scheduled" and worked in the month
+//   meetingDone      — currently "Meeting Done" and worked in the month
+//   followUpsDue     — nextFollowUpDate in the month
+//   won              — a won lead whose closedDate is in the month
+//   wonValue         — Σ closedAmount of those won leads
+//   pipelineValue    — Σ quotedAmount of OPEN leads worked in the month
 // `byStatus` is the current all-time distribution (for the status bars).
 export function monthMetrics(leads, ym) {
   const byStatus = {};
   LEAD_STATUSES.forEach((s) => (byStatus[s] = 0));
+  let uncontacted = 0;
   let newAssigned = 0;
   let contacted = 0;
+  let meetingScheduled = 0;
+  let meetingDone = 0;
   let followUpsDue = 0;
   let won = 0;
   let wonValue = 0;
@@ -49,25 +61,31 @@ export function monthMetrics(leads, ym) {
 
   for (const l of leads) {
     byStatus[l.leadStatus] = (byStatus[l.leadStatus] || 0) + 1;
+    if (!isContacted(l)) uncontacted += 1;
+
+    const worked =
+      inMonth(l.lastContactDate, ym) || inMonth(l.assignedDate, ym);
     if (inMonth(l.assignedDate, ym)) newAssigned += 1;
     if (inMonth(l.lastContactDate, ym)) contacted += 1;
+    if (l.leadStatus === "Meeting Scheduled" && worked) meetingScheduled += 1;
+    if (l.leadStatus === "Meeting Done" && worked) meetingDone += 1;
     if (inMonth(l.nextFollowUpDate, ym)) followUpsDue += 1;
     if (isWon(l.leadStatus) && inMonth(l.closedDate, ym)) {
       won += 1;
       wonValue += Number(l.closedAmount) || 0;
-    } else if (
-      isActive(l.leadStatus) &&
-      (inMonth(l.lastContactDate, ym) || inMonth(l.assignedDate, ym))
-    ) {
+    } else if (isActive(l.leadStatus) && worked) {
       pipelineValue += Number(l.quotedAmount) || 0;
     }
   }
 
   return {
     totalLeads: leads.length,
+    uncontacted,
     byStatus,
     newAssigned,
     contacted,
+    meetingScheduled,
+    meetingDone,
     followUpsDue,
     won,
     wonValue,
@@ -156,18 +174,18 @@ export function personEarnings({
   };
 }
 
-// Full analytics for a single DSC (their own leads only) for month `ym`, using
-// their effective package (so a per-person override changes only their numbers).
+// Full "own leads" analytics for one person for month `ym`, using their
+// effective package. Works for a DSC (their own view) or a BDM ("My leads").
 // Earnings are month-scoped: the target gate uses leads won in `ym`.
-export function dscAnalytics(dsc, allLeads, config, ym) {
-  const own = allLeads.filter((l) => l.assignedDscId === dsc.id);
+export function personAnalytics(person, allLeads, config, ym, role = "dsc") {
+  const own = allLeads.filter((l) => l.assignedDscId === person.id);
   const metrics = monthMetrics(own, ym);
-  const comp = resolvePersonComp(config, "dsc", dsc);
-  const tenureMonths = monthsSince(dsc.joiningDate);
+  const comp = resolvePersonComp(config, role, person);
   const inTraining =
-    tenureMonths !== null && tenureMonths < comp.trainingMonths;
+    role === "dsc" &&
+    (monthsSince(person.joiningDate) ?? 99) < comp.trainingMonths;
   const earnings = personEarnings({
-    role: "dsc",
+    role,
     inTraining,
     closedCount: metrics.won,
     salesValue: metrics.wonValue,
@@ -175,12 +193,18 @@ export function dscAnalytics(dsc, allLeads, config, ym) {
     deductionPct: config.deductionPct,
   });
   return {
-    dsc,
+    dsc: person, // alias so the team's per-DSC table can read `.dsc`
+    person,
     metrics,
     earnings,
     comp,
-    overridden: hasCompOverride(config, dsc.id),
+    overridden: hasCompOverride(config, person.id),
   };
+}
+
+// A single DSC's analytics (their own leads only).
+export function dscAnalytics(dsc, allLeads, config, ym) {
+  return personAnalytics(dsc, allLeads, config, ym, "dsc");
 }
 
 // Full team analytics for the BDM / Admin (whole company) for month `ym`.

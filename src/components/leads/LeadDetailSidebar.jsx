@@ -10,7 +10,8 @@ import { StatusBadge, PriorityBadge } from "./LeadStatusBadge";
 // reusing ExpandedLeadRow so the two views never drift apart.
 export default function LeadDetailSidebar({
   lead,
-  role,
+  canEdit = false,
+  canAssign = false,
   groups,
   onChange,
   onClose,
@@ -69,7 +70,8 @@ export default function LeadDetailSidebar({
             <div className="flex-1 overflow-y-auto px-6 py-4">
               <ExpandedLeadRow
                 lead={lead}
-                role={role}
+                canEdit={canEdit}
+                canAssign={canAssign}
                 onChange={onChange}
                 groups={groups}
                 variant="sidebar"
