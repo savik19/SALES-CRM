@@ -23,7 +23,12 @@ import {
 import { useColumnConfig } from "@/lib/columnConfig";
 import { useActiveDscs, useUsers } from "@/lib/usersConfig";
 import { getLeads, updateLead, assignLeads } from "@/lib/leadsApi";
-import { discountPct, recentMonths, monthKeyOf } from "@/lib/format";
+import {
+  discountPct,
+  recentMonths,
+  monthKeyOf,
+  isoInRange,
+} from "@/lib/format";
 import {
   LEAD_STATUSES,
   PRIORITIES,
@@ -105,13 +110,10 @@ function compareLeads(a, b, column, dir) {
 
 // ---- Follow-up date range (calendar filter) --------------------------------
 // True when `iso` (a lead's follow-up date) is within [from, to] inclusive.
-// Empty from/to = open-ended; both empty = no filter. A single day = from == to.
+// Both empty = no filter (all leads). A single day = from == to.
 function inDateRange(iso, from, to) {
   if (!from && !to) return true;
-  if (!iso) return false;
-  if (from && iso < from) return false;
-  if (to && iso > to) return false;
-  return true;
+  return isoInRange(iso, from, to);
 }
 
 export default function LeadsPage() {
@@ -548,7 +550,7 @@ export default function LeadsPage() {
             onColumnsChange={setVisibleCols}
             columnGroups={groups}
             columnKeys={colKeys}
-            showDscFilter={isManager}
+            showDscFilter={isManager && effFocus === "team"}
             canImport={isManager}
             onImport={() => setImportOpen(true)}
           />

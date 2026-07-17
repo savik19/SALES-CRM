@@ -6,7 +6,7 @@
 // ---------------------------------------------------------------------------
 
 import { LEAD_STATUSES } from "@/data/mockLeads";
-import { monthsSince, inMonth } from "@/lib/format";
+import { monthsSince, inMonth, isoInRange } from "@/lib/format";
 
 // A "closed"/won deal = Won or any post-sale status (not Cancelled, which is a
 // won deal that fell apart, and not Lost / On Hold).
@@ -30,6 +30,21 @@ export function isActive(status) {
 // called/messaged at least once). Leads still at "New" with no contact are not.
 export function isContacted(lead) {
   return !!lead.lastContactDate;
+}
+
+// Is a lead "active in the period [from, to]"? True when ANY of its activity
+// dates fall in the range: assigned, last-contacted, next follow-up, or closed.
+// Empty bounds (both "") = every lead. Used by the Pipeline board so a month (or
+// a calendar range) shows the leads actually worked in that window, rather than
+// every lead ever created. (String compare is safe for ISO dates.)
+export function leadInPeriod(lead, from, to) {
+  if (!from && !to) return true;
+  return (
+    isoInRange(lead.assignedDate, from, to) ||
+    isoInRange(lead.lastContactDate, from, to) ||
+    isoInRange(lead.nextFollowUpDate, from, to) ||
+    isoInRange(lead.closedDate, from, to)
+  );
 }
 
 // Metrics for a set of leads, scoped to a "YYYY-MM" month `ym`.

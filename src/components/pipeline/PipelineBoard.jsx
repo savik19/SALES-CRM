@@ -6,19 +6,28 @@ import { statusBadgeClass } from "@/components/leads/statusStyles";
 import { PriorityBadge } from "@/components/leads/LeadStatusBadge";
 import { formatINR, formatDate, isOnOrBefore } from "@/lib/format";
 
-// One draggable lead card.
-function LeadCard({ lead, onMove, onOpen }) {
+// One lead card. Draggable + status-editable only when `editable` (the page
+// decides this from the permission model — a read-only lead, e.g. a DSC's lead
+// seen by a manager, can be opened but not moved).
+function LeadCard({ lead, editable, onMove, onOpen }) {
   const value = lead.closedAmount ?? lead.quotedAmount;
   const overdue = isOnOrBefore(lead.nextFollowUpDate);
   return (
     <div
-      draggable
-      onDragStart={(e) => {
-        e.dataTransfer.setData("text/plain", lead.leadId);
-        e.dataTransfer.effectAllowed = "move";
-      }}
+      draggable={editable}
+      onDragStart={
+        editable
+          ? (e) => {
+              e.dataTransfer.setData("text/plain", lead.leadId);
+              e.dataTransfer.effectAllowed = "move";
+            }
+          : undefined
+      }
       onClick={() => onOpen?.(lead)}
-      className="cursor-grab rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm hover:border-brand active:cursor-grabbing"
+      className={`rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm hover:border-brand ${
+        editable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
+      }`}
+      title={editable ? undefined : "Read-only — assigned to another DSC"}
     >
       <div className="flex items-start justify-between gap-2">
         <span className="truncate text-sm font-medium text-slate-900">
@@ -45,12 +54,13 @@ function LeadCard({ lead, onMove, onOpen }) {
         </div>
       ) : null}
 
-      {/* Non-drag alternative: change status via select */}
+      {/* Non-drag alternative: change status via select (disabled when read-only) */}
       <select
         value={lead.leadStatus}
+        disabled={!editable}
         onClick={(e) => e.stopPropagation()}
         onChange={(e) => onMove(lead.leadId, e.target.value)}
-        className="mt-2 w-full rounded border border-slate-200 bg-slate-50 px-1.5 py-1 text-[11px] text-slate-600 focus:border-brand focus:outline-none"
+        className="mt-2 w-full rounded border border-slate-200 bg-slate-50 px-1.5 py-1 text-[11px] text-slate-600 focus:border-brand focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
         aria-label="Change status"
       >
         {LEAD_STATUSES.map((s) => (
@@ -64,8 +74,14 @@ function LeadCard({ lead, onMove, onOpen }) {
 }
 
 // Kanban board: one column per pipeline status. Drag a card to another column
-// (or use the card's status select) to change its status.
-export default function PipelineBoard({ leads, onMove, onOpen }) {
+// (or use the card's status select) to change its status. `canEdit(lead)` decides
+// per card whether it can be moved (read-only leads can still be opened).
+export default function PipelineBoard({
+  leads,
+  onMove,
+  onOpen,
+  canEdit = () => true,
+}) {
   const [dragOver, setDragOver] = useState(null);
 
   const byStatus = {};
@@ -93,6 +109,8 @@ export default function PipelineBoard({ leads, onMove, onOpen }) {
             onDrop={(e) => {
               e.preventDefault();
               const leadId = e.dataTransfer.getData("text/plain");
+              // The page's onMove also re-checks permission (defense in depth);
+              // only editable cards are draggable in the first place.
               if (leadId) onMove(leadId, status);
               setDragOver(null);
             }}
@@ -127,6 +145,7 @@ export default function PipelineBoard({ leads, onMove, onOpen }) {
                   <LeadCard
                     key={lead.leadId}
                     lead={lead}
+                    editable={canEdit(lead)}
                     onMove={onMove}
                     onOpen={onOpen}
                   />

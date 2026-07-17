@@ -16,7 +16,13 @@ import {
 import { useColumnConfig } from "@/lib/columnConfig";
 import { useActiveDscs, useUsers } from "@/lib/usersConfig";
 import { groupsOf } from "@/components/leads/columns";
-import { matchesDateWindow } from "@/lib/dateFilters";
+import { isWon, isActive, leadInPeriod } from "@/lib/analytics";
+import {
+  monthRange,
+  recentMonths,
+  monthKeyOf,
+  isOnOrBefore,
+} from "@/lib/format";
 
 const EMPTY_FILTERS = {
   priority: [],
@@ -36,14 +42,32 @@ const SEARCH_KEYS = [
 
 // Pipeline / Kanban board (Build Brief §3 step 2). Drag a lead card between
 // status columns — or use the card's status select — to change its status.
-// Role-aware like the Lead Table: a DSC sees only their own leads.
+// Mirrors the Lead Table's role model: a DSC sees only their own leads; a manager
+// can focus the whole board on the team, their own leads, or one DSC (read-only).
+// The board is scoped to a period (default = current month) via a month selector
+// or a calendar range, so it shows the leads worked in that window, not all leads.
 export default function PipelinePage() {
   const dscs = useActiveDscs();
   const { users } = useUsers();
 
+  // ---- Role (demo switcher; real auth replaces this) -----------------------
   const [viewerId, setViewerId] = useState("u-prakhar");
   const viewer = users.find((u) => u.id === viewerId) || USER_BY_ID[viewerId];
-  const isManager = viewer?.role === "bdm" || viewer?.role === "admin";
+  const isAdmin = viewer?.role === "admin";
+  const isBDM = viewer?.role === "bdm";
+  const isManager = isBDM || isAdmin;
+
+  // ---- Manager focus: "team" | "self" (BDM's own) | a DSC id ----------------
+  const [focus, setFocus] = useState("team");
+  useEffect(() => {
+    setFocus(viewer?.role === "bdm" ? "self" : "team");
+  }, [viewerId, viewer?.role]);
+  const effFocus = isManager ? focus : "self";
+  const focusDsc =
+    effFocus !== "team" && effFocus !== "self"
+      ? dscs.find((d) => d.id === effFocus)
+      : null;
+  const focusIsDsc = !!focusDsc;
 
   // Keep the demo viewer valid if the Admin deactivates the current one.
   useEffect(() => {
@@ -73,18 +97,35 @@ export default function PipelinePage() {
     };
   }, []);
 
-  const scoped = useMemo(
+  // ---- Scoping by focus ----------------------------------------------------
+  const scopeUserId =
+    effFocus === "team" ? null : focusIsDsc ? effFocus : viewerId;
+  const roleScoped = useMemo(() => {
+    if (effFocus === "team") return allLeads;
+    return allLeads.filter((l) => l.assignedDscId === scopeUserId);
+  }, [allLeads, effFocus, scopeUserId]);
+
+  // ---- Period (month selector, or a calendar range that overrides it) -------
+  const monthOptions = useMemo(() => recentMonths(6), []);
+  const [periodMonth, setPeriodMonth] = useState(() => monthKeyOf());
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const period = useMemo(
     () =>
-      isManager
-        ? allLeads
-        : allLeads.filter((l) => l.assignedDscId === viewerId),
-    [allLeads, isManager, viewerId]
+      dateFrom || dateTo
+        ? { from: dateFrom, to: dateTo }
+        : monthRange(periodMonth),
+    [dateFrom, dateTo, periodMonth]
+  );
+
+  // Leads within the period (before search / multi-select) — the period "book".
+  const periodScoped = useMemo(
+    () => roleScoped.filter((l) => leadInPeriod(l, period.from, period.to)),
+    [roleScoped, period]
   );
 
   // ---- Filters -------------------------------------------------------------
   const [search, setSearch] = useState("");
-  const [followUp, setFollowUp] = useState(""); // overdue | today | week
-  const [activity, setActivity] = useState(""); // last7 | last30 (Last Contact)
   const [filters, setFilters] = useState(EMPTY_FILTERS);
 
   function handleFilterChange(key, values) {
@@ -92,22 +133,28 @@ export default function PipelinePage() {
   }
   function clearAll() {
     setSearch("");
-    setFollowUp("");
-    setActivity("");
     setFilters(EMPTY_FILTERS);
+    setDateFrom("");
+    setDateTo("");
   }
 
-  // Reset filters when switching role/viewer.
+  // Reset filters/period when switching role/viewer (keep the month at current).
   useEffect(() => {
     setSearch("");
-    setFollowUp("");
-    setActivity("");
     setFilters(EMPTY_FILTERS);
+    setDateFrom("");
+    setDateTo("");
+    setPeriodMonth(monthKeyOf());
   }, [viewerId]);
 
+  const showDscFilter = isManager && effFocus === "team";
+
   const cityOptions = useMemo(
-    () => Array.from(new Set(scoped.map((l) => l.city).filter(Boolean))).sort(),
-    [scoped]
+    () =>
+      Array.from(
+        new Set(periodScoped.map((l) => l.city).filter(Boolean))
+      ).sort(),
+    [periodScoped]
   );
   const filterOptions = {
     priority: PRIORITIES,
@@ -122,15 +169,11 @@ export default function PipelinePage() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return scoped.filter((lead) => {
+    return periodScoped.filter((lead) => {
       for (const key of Object.keys(EMPTY_FILTERS)) {
         const sel = filters[key];
         if (sel.length > 0 && !sel.includes(lead[key])) return false;
       }
-      if (followUp && !matchesDateWindow(lead.nextFollowUpDate, followUp))
-        return false;
-      if (activity && !matchesDateWindow(lead.lastContactDate, activity))
-        return false;
       if (q) {
         const hay = SEARCH_KEYS.map((k) => lead[k])
           .join(" ")
@@ -139,9 +182,40 @@ export default function PipelinePage() {
       }
       return true;
     });
-  }, [scoped, search, followUp, activity, filters]);
+  }, [periodScoped, search, filters]);
+
+  // ---- Period stats (over the period book, independent of search/filters) ---
+  const stats = useMemo(() => {
+    let openValue = 0;
+    let won = 0;
+    let wonValue = 0;
+    let overdue = 0;
+    for (const l of periodScoped) {
+      if (isWon(l.leadStatus)) {
+        won += 1;
+        wonValue += Number(l.closedAmount) || 0;
+      } else if (isActive(l.leadStatus)) {
+        openValue += Number(l.quotedAmount) || 0;
+        if (isOnOrBefore(l.nextFollowUpDate)) overdue += 1;
+      }
+    }
+    return { total: periodScoped.length, openValue, won, wonValue, overdue };
+  }, [periodScoped]);
+
+  // ---- Edit permissions (by role + focus) — same model as the Lead Table ----
+  // A status change (drag or the card's select) is an edit, so it's gated by the
+  // same rule: a DSC edits their own leads; a manager edits only unassigned or
+  // their own; a DSC's lead (or anything while focused on a DSC) is read-only.
+  function canEditLead(lead) {
+    if (!isManager) return lead?.assignedDscId === viewerId;
+    if (focusIsDsc) return false;
+    return lead?.assignedDscId === "" || lead?.assignedDscId === viewerId;
+  }
+  const canReassign = isManager && !focusIsDsc;
 
   function handleMove(leadId, status) {
+    const lead = allLeads.find((l) => l.leadId === leadId);
+    if (!canEditLead(lead)) return; // enforce permission (UI also disables it)
     setAllLeads((rows) =>
       rows.map((l) => (l.leadId === leadId ? { ...l, leadStatus: status } : l))
     );
@@ -152,6 +226,10 @@ export default function PipelinePage() {
   }
 
   function handleFieldChange(leadId, patch) {
+    const lead = allLeads.find((l) => l.leadId === leadId);
+    const keys = Object.keys(patch);
+    const isReassignOnly = keys.length === 1 && keys[0] === "assignedDscId";
+    if (isReassignOnly ? !canReassign : !canEditLead(lead)) return;
     setAllLeads((rows) =>
       rows.map((l) => (l.leadId === leadId ? { ...l, ...patch } : l))
     );
@@ -159,33 +237,59 @@ export default function PipelinePage() {
     updateLead(leadId, patch).catch((e) => console.error(e));
   }
 
+  const subtitle = focusIsDsc
+    ? `Viewing ${focusDsc.name}'s pipeline (read-only)`
+    : effFocus === "self"
+      ? `${viewer?.name}'s pipeline`
+      : "Drag a lead between stages to update its status";
+
   return (
     <div className="flex h-full flex-col">
       <Topbar
         title="Pipeline"
-        subtitle={
-          isManager
-            ? "Drag a lead between stages to update its status"
-            : `${viewer?.name}'s pipeline`
+        subtitle={subtitle}
+        right={
+          <div className="flex items-center gap-3">
+            {isManager ? (
+              <label className="flex items-center gap-2 text-sm text-slate-600">
+                <span className="hidden sm:inline">Focus</span>
+                <select
+                  value={effFocus}
+                  onChange={(e) => setFocus(e.target.value)}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+                >
+                  <option value="team">All team</option>
+                  {isBDM ? <option value="self">My leads</option> : null}
+                  {dscs.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            <RoleSwitcher viewerId={viewerId} onChange={setViewerId} />
+          </div>
         }
-        right={<RoleSwitcher viewerId={viewerId} onChange={setViewerId} />}
       />
 
       {!loading ? (
         <PipelineToolbar
-          scoped={scoped}
           count={filtered.length}
-          total={scoped.length}
+          stats={stats}
           search={search}
           onSearch={setSearch}
-          followUp={followUp}
-          onFollowUp={setFollowUp}
-          activity={activity}
-          onActivity={setActivity}
+          month={periodMonth}
+          months={monthOptions}
+          onMonth={setPeriodMonth}
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          onDateFrom={setDateFrom}
+          onDateTo={setDateTo}
           filters={filters}
           onFilterChange={handleFilterChange}
           options={filterOptions}
-          showDscFilter={isManager}
+          showDscFilter={showDscFilter}
           onClearAll={clearAll}
         />
       ) : null}
@@ -195,26 +299,24 @@ export default function PipelinePage() {
           <div className="px-6 py-20 text-center text-sm text-slate-500">
             Loading pipeline…
           </div>
+        ) : filtered.length === 0 ? (
+          <div className="px-6 py-20 text-center text-sm text-slate-500">
+            No leads for this period. Try another month or widen the date range.
+          </div>
         ) : (
           <PipelineBoard
             leads={filtered}
             onMove={handleMove}
             onOpen={setDetailLead}
+            canEdit={canEditLead}
           />
         )}
       </div>
 
       <LeadDetailSidebar
         lead={detailLead}
-        canEdit={
-          detailLead
-            ? isManager
-              ? detailLead.assignedDscId === "" ||
-                detailLead.assignedDscId === viewerId
-              : detailLead.assignedDscId === viewerId
-            : false
-        }
-        canAssign={isManager}
+        canEdit={detailLead ? canEditLead(detailLead) : false}
+        canAssign={canReassign}
         groups={groups}
         onChange={handleFieldChange}
         onClose={() => setDetailLead(null)}
