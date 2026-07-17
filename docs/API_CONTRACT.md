@@ -107,6 +107,17 @@ the card's select) is a normal lead edit and obeys the same permission model
 below — read-only leads (a DSC's lead seen by a manager, or anything while a
 manager is focused on a DSC) cannot be dragged or restaged.
 
+**Pipeline excludes "New".** The board is a Kanban of deals being **actively
+worked**, so it omits the `New` status — assigned-but-not-yet-worked leads that
+can number in the thousands. They stay in the Lead Table (paginated) and their
+count surfaces in the New-assigned / Uncontacted analytics; they never render as
+Kanban cards. The board, its counts, and its filters all derive from this
+"pipeline" set (every status **except** `New`). A **Status filter** lets any role
+(Admin / BDM / DSC) narrow the board to specific stages — only the selected
+status columns render, in funnel order; clearing it shows all pipeline stages.
+For a real backend this is a client-side view rule; the API can still return all
+statuses and the frontend decides what the board shows.
+
 ### TeamMember / User
 
 Managed by the Admin on the **User Management** screen. `assignedDscId` on a Lead

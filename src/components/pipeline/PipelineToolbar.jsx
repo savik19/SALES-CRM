@@ -29,6 +29,7 @@ function Stat({ label, value, tone = "slate", title }) {
 }
 
 const FILTER_DEFS = [
+  { key: "leadStatus", label: "Status" },
   { key: "priority", label: "Priority" },
   { key: "industry", label: "Industry" },
   { key: "city", label: "City" },
@@ -191,7 +192,7 @@ export default function PipelineToolbar({
         <Stat
           label="In pipeline"
           value={stats.total}
-          title="Leads worked in the selected period."
+          title="Leads in the funnel (Contacted onward) worked in the selected period. New, unworked leads live in the Lead Table."
         />
         <Stat
           label="Open value"

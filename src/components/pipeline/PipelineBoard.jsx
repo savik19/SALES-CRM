@@ -8,8 +8,9 @@ import { formatINR, formatDate, isOnOrBefore } from "@/lib/format";
 
 // One lead card. Draggable + status-editable only when `editable` (the page
 // decides this from the permission model — a read-only lead, e.g. a DSC's lead
-// seen by a manager, can be opened but not moved).
-function LeadCard({ lead, editable, onMove, onOpen }) {
+// seen by a manager, can be opened but not moved). `moveOptions` are the statuses
+// the card can be restaged to (defaults to every status).
+function LeadCard({ lead, editable, moveOptions, onMove, onOpen }) {
   const value = lead.closedAmount ?? lead.quotedAmount;
   const overdue = isOnOrBefore(lead.nextFollowUpDate);
   return (
@@ -63,7 +64,7 @@ function LeadCard({ lead, editable, onMove, onOpen }) {
         className="mt-2 w-full rounded border border-slate-200 bg-slate-50 px-1.5 py-1 text-[11px] text-slate-600 focus:border-brand focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
         aria-label="Change status"
       >
-        {LEAD_STATUSES.map((s) => (
+        {moveOptions.map((s) => (
           <option key={s} value={s}>
             {s}
           </option>
@@ -73,11 +74,15 @@ function LeadCard({ lead, editable, onMove, onOpen }) {
   );
 }
 
-// Kanban board: one column per pipeline status. Drag a card to another column
-// (or use the card's status select) to change its status. `canEdit(lead)` decides
-// per card whether it can be moved (read-only leads can still be opened).
+// Kanban board: one column per visible status (`statuses`, in funnel order).
+// Drag a card to another column (or use the card's status select) to change its
+// status. `canEdit(lead)` decides per card whether it can be moved (read-only
+// leads can still be opened); `moveOptions` are the statuses a card's select
+// offers.
 export default function PipelineBoard({
   leads,
+  statuses = LEAD_STATUSES,
+  moveOptions = LEAD_STATUSES,
   onMove,
   onOpen,
   canEdit = () => true,
@@ -85,14 +90,14 @@ export default function PipelineBoard({
   const [dragOver, setDragOver] = useState(null);
 
   const byStatus = {};
-  LEAD_STATUSES.forEach((s) => (byStatus[s] = []));
+  statuses.forEach((s) => (byStatus[s] = []));
   for (const l of leads) {
     (byStatus[l.leadStatus] || (byStatus[l.leadStatus] = [])).push(l);
   }
 
   return (
     <div className="flex h-full gap-3 overflow-x-auto px-6 py-4">
-      {LEAD_STATUSES.map((status) => {
+      {statuses.map((status) => {
         const items = byStatus[status] || [];
         const value = items.reduce(
           (sum, l) => sum + (Number(l.closedAmount ?? l.quotedAmount) || 0),
@@ -146,6 +151,7 @@ export default function PipelineBoard({
                     key={lead.leadId}
                     lead={lead}
                     editable={canEdit(lead)}
+                    moveOptions={moveOptions}
                     onMove={onMove}
                     onOpen={onOpen}
                   />
