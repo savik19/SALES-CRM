@@ -62,8 +62,20 @@ or an `Authorization` header.
   "assignedDate": "2026-07-02", // ISO date the lead was assigned to its DSC
   "closedDate": "2026-07-11", // ISO date a won lead was closed; "" otherwise
   "notes": "Wants a revised quote…", // long text
+
+  // ---- Company → Deal model (see below) ----
+  "companyId": "co-sri-vari-textiles", // groups all deals for one company
+  "lineItems": [{ "offeringId": "svc-custom-software", "amount": 440000 }],
+  "wonApprovedDate": "2026-07-11", // set by the Admin on approval; "" until then
+  "approvalStatus": "approved", // "" | "pending" | "approved" | "rejected"
 }
 ```
+
+**Company → Deal.** Each record is really a **Deal**; `companyId` groups all
+deals for one **Company** (a company accumulates many deals over time — a new
+project, an upsell, a renewal). The detail view lists "other deals for this
+company". `lineItems` (what was sold) drive commission (see the catalog); the
+`approval*` / `wonApprovedDate` fields drive the win-approval flow (below).
 
 > **Discount %** (schema column 22) is **computed, never stored**:
 > `(quotedAmount − closedAmount) / quotedAmount × 100`. The frontend derives it;

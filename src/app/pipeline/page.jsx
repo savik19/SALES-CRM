@@ -405,6 +405,18 @@ export default function PipelinePage() {
         onClose={() => setDetailLead(null)}
         canRequestWin={detailLead ? canRequestWin(detailLead) : false}
         onRequestWin={(lead) => setWinRequestLead(lead)}
+        siblingDeals={
+          detailLead
+            ? allLeads.filter(
+                (l) =>
+                  l.companyId === detailLead.companyId &&
+                  l.leadId !== detailLead.leadId
+              )
+            : []
+        }
+        onOpenDeal={(leadId) =>
+          setDetailLead(allLeads.find((l) => l.leadId === leadId) || null)
+        }
       />
 
       <WinRequestModal
