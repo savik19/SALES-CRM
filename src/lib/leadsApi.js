@@ -82,6 +82,24 @@ export async function updateLead(leadId, changes) {
   return simulateLatency(mockPatch(leadId, changes));
 }
 
+// Sequence for demo deal ids created at runtime (a real backend assigns these).
+let _newDealSeq = 0;
+
+/**
+ * POST /api/deals — create a NEW deal for a company (an upsell / renewal / new
+ * project on an existing company, or a brand-new company). The body is a full
+ * Lead/Deal; the backend assigns the id. Mock: prepends to MOCK_LEADS so it
+ * shows on top, and returns the created record.
+ * @param {Partial<import('@/lib/types').Lead>} deal
+ */
+export async function createDeal(deal) {
+  if (!USE_MOCK_DATA) return apiSend("POST", `/api/deals`, deal);
+  const leadId = deal.leadId || `SCRIPT${9000 + ++_newDealSeq}`;
+  const record = { ...deal, leadId };
+  MOCK_LEADS.unshift(record);
+  return simulateLatency({ ...record });
+}
+
 /**
  * POST /api/leads/:leadId/request-win — a DSC requests Admin approval to move a
  * deal to "Project Started" (the credited win). `payload` snapshots the deal

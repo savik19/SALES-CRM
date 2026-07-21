@@ -20,6 +20,8 @@ export default function LeadDetailSidebar({
   canRequestWin = false, // eligible to request (owner + active + not pending)
   siblingDeals = [], // other deals for the same company (Company → Deal model)
   onOpenDeal, // (leadId) => void — open a sibling deal in this sidebar
+  canCreateDeal = false, // may open a NEW deal for this company (upsell/renewal)
+  onNewDeal, // (lead) => void — create a new deal for this company
 }) {
   useEffect(() => {
     if (!lead) return;
@@ -94,35 +96,54 @@ export default function LeadDetailSidebar({
                 variant="sidebar"
               />
 
-              {/* Company → Deal: other deals for the same company. A company can
+              {/* Company → Deal: all deals for the same company. A company can
                   accumulate many deals over time (a new project, an upsell, a
-                  renewal); each is its own deal with its own status + value. */}
-              {siblingDeals.length ? (
+                  renewal); each is its own deal with its own status + value. The
+                  "+ New deal" action opens a fresh deal for this same company. */}
+              {siblingDeals.length || canCreateDeal ? (
                 <section className="mt-5">
-                  <h4 className="mb-2 border-b border-slate-100 pb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                    Other deals for {lead.company} ({siblingDeals.length})
-                  </h4>
-                  <ul className="space-y-1.5">
-                    {siblingDeals.map((d) => (
-                      <li key={d.leadId}>
-                        <button
-                          type="button"
-                          onClick={() => onOpenDeal?.(d.leadId)}
-                          className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 px-3 py-2 text-left hover:border-brand hover:bg-brand-50/40"
-                        >
-                          <span className="flex min-w-0 items-center gap-2">
-                            <span className="truncate font-mono text-[11px] text-slate-400">
-                              {d.leadId}
+                  <div className="mb-2 flex items-center justify-between gap-2 border-b border-slate-100 pb-1">
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      Deals for {lead.company} ({siblingDeals.length + 1})
+                    </h4>
+                    {canCreateDeal ? (
+                      <button
+                        type="button"
+                        onClick={() => onNewDeal?.(lead)}
+                        className="shrink-0 rounded-md border border-brand px-2 py-0.5 text-xs font-medium text-brand hover:bg-brand-50"
+                      >
+                        + New deal
+                      </button>
+                    ) : null}
+                  </div>
+                  {siblingDeals.length ? (
+                    <ul className="space-y-1.5">
+                      {siblingDeals.map((d) => (
+                        <li key={d.leadId}>
+                          <button
+                            type="button"
+                            onClick={() => onOpenDeal?.(d.leadId)}
+                            className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 px-3 py-2 text-left hover:border-brand hover:bg-brand-50/40"
+                          >
+                            <span className="flex min-w-0 items-center gap-2">
+                              <span className="truncate font-mono text-[11px] text-slate-400">
+                                {d.leadId}
+                              </span>
+                              <StatusBadge status={d.leadStatus} />
                             </span>
-                            <StatusBadge status={d.leadStatus} />
-                          </span>
-                          <span className="shrink-0 tabular-nums text-xs text-slate-500">
-                            {formatINR(d.closedAmount ?? d.quotedAmount)}
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
+                            <span className="shrink-0 tabular-nums text-xs text-slate-500">
+                              {formatINR(d.closedAmount ?? d.quotedAmount)}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-xs text-slate-400">
+                      This is the only deal for this company so far. Use “+ New
+                      deal” for a future purchase (upsell / renewal).
+                    </p>
+                  )}
                 </section>
               ) : null}
             </div>

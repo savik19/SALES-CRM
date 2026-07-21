@@ -7,7 +7,7 @@ import PipelineBoard from "@/components/pipeline/PipelineBoard";
 import PipelineToolbar from "@/components/pipeline/PipelineToolbar";
 import LeadDetailSidebar from "@/components/leads/LeadDetailSidebar";
 import WinRequestModal from "@/components/leads/WinRequestModal";
-import { getLeads, updateLead, requestWin } from "@/lib/leadsApi";
+import { getLeads, updateLead, requestWin, createDeal } from "@/lib/leadsApi";
 import {
   USER_BY_ID,
   LEAD_STATUSES,
@@ -316,6 +316,50 @@ export default function PipelinePage() {
     );
   }
 
+  const canCreateDeal = !focusIsDsc && (isManager || viewer?.role === "dsc");
+  function handleNewDeal(fromLead) {
+    const owner =
+      viewer?.role === "dsc" ? viewer.id : fromLead.assignedDscId || "";
+    const deal = {
+      companyId: fromLead.companyId,
+      company: fromLead.company,
+      industry: fromLead.industry,
+      contactPerson: fromLead.contactPerson,
+      roleTitle: fromLead.roleTitle,
+      phone: fromLead.phone,
+      email: fromLead.email,
+      city: fromLead.city,
+      country: fromLead.country,
+      website: fromLead.website,
+      linkedinUrl: fromLead.linkedinUrl,
+      leadSource: fromLead.leadSource,
+      leadStatus: "New",
+      priority: "Medium",
+      lastContactDate: "",
+      nextFollowUpDate: "",
+      notes: `New deal for ${fromLead.company}.`,
+      assignedDscId: owner,
+      attemptCount: 0,
+      servicesPitched: [],
+      servicesInterested: [],
+      servicesOnboarded: [],
+      quotedAmount: null,
+      closedAmount: null,
+      lostReason: "",
+      assignedDate: monthKeyOf() + "-15",
+      closedDate: "",
+      wonApprovedDate: "",
+      lineItems: [],
+      approvalStatus: "",
+    };
+    createDeal(deal)
+      .then((created) => {
+        setAllLeads((rows) => [created, ...rows]);
+        setDetailLead(created);
+      })
+      .catch((e) => console.error(e));
+  }
+
   const subtitle = focusIsDsc
     ? `Viewing ${focusDsc.name}'s pipeline (read-only)`
     : effFocus === "self"
@@ -417,6 +461,8 @@ export default function PipelinePage() {
         onOpenDeal={(leadId) =>
           setDetailLead(allLeads.find((l) => l.leadId === leadId) || null)
         }
+        canCreateDeal={canCreateDeal}
+        onNewDeal={handleNewDeal}
       />
 
       <WinRequestModal

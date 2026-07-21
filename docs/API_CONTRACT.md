@@ -73,9 +73,12 @@ or an `Authorization` header.
 
 **Company → Deal.** Each record is really a **Deal**; `companyId` groups all
 deals for one **Company** (a company accumulates many deals over time — a new
-project, an upsell, a renewal). The detail view lists "other deals for this
-company". `lineItems` (what was sold) drive commission (see the catalog); the
-`approval*` / `wonApprovedDate` fields drive the win-approval flow (below).
+project, an upsell, a renewal). The detail view lists all deals for the company
+and a **“+ New deal”** action opens a fresh one (same `companyId`, company/contact
+copied, `leadStatus: "New"`) via `createDeal` → **`POST /api/deals`**. So a
+company can have many deals both now and in future. `lineItems` (what was sold)
+drive commission (see the catalog); the `approval*` / `wonApprovedDate` fields
+drive the win-approval flow (below).
 
 > **Discount %** (schema column 22) is **computed, never stored**:
 > `(quotedAmount − closedAmount) / quotedAmount × 100`. The frontend derives it;
