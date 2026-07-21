@@ -6,7 +6,8 @@ import RoleSwitcher from "@/components/leads/RoleSwitcher";
 import PipelineBoard from "@/components/pipeline/PipelineBoard";
 import PipelineToolbar from "@/components/pipeline/PipelineToolbar";
 import LeadDetailSidebar from "@/components/leads/LeadDetailSidebar";
-import { getLeads, updateLead } from "@/lib/leadsApi";
+import WinRequestModal from "@/components/leads/WinRequestModal";
+import { getLeads, updateLead, requestWin } from "@/lib/leadsApi";
 import {
   USER_BY_ID,
   LEAD_STATUSES,
@@ -103,6 +104,7 @@ export default function PipelinePage() {
   const [allLeads, setAllLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [detailLead, setDetailLead] = useState(null);
+  const [winRequestLead, setWinRequestLead] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -289,6 +291,31 @@ export default function PipelinePage() {
     updateLead(leadId, patch).catch((e) => console.error(e));
   }
 
+  // Close request from the pipeline detail — same flow as the Lead Table.
+  function handleRequestWin(payload) {
+    const leadId = winRequestLead?.leadId;
+    if (!leadId) return;
+    const patch = {
+      approvalStatus: "pending",
+      approvalRequest: payload,
+      approvalReason: "",
+    };
+    setAllLeads((rows) =>
+      rows.map((l) => (l.leadId === leadId ? { ...l, ...patch } : l))
+    );
+    setDetailLead((d) => (d && d.leadId === leadId ? { ...d, ...patch } : d));
+    requestWin(leadId, payload).catch((e) => console.error(e));
+    setWinRequestLead(null);
+  }
+  function canRequestWin(lead) {
+    return (
+      !!lead &&
+      canEditLead(lead) &&
+      isActive(lead.leadStatus) &&
+      lead.approvalStatus !== "pending"
+    );
+  }
+
   const subtitle = focusIsDsc
     ? `Viewing ${focusDsc.name}'s pipeline (read-only)`
     : effFocus === "self"
@@ -376,6 +403,17 @@ export default function PipelinePage() {
         groups={groups}
         onChange={handleFieldChange}
         onClose={() => setDetailLead(null)}
+        canRequestWin={detailLead ? canRequestWin(detailLead) : false}
+        onRequestWin={(lead) => setWinRequestLead(lead)}
+      />
+
+      <WinRequestModal
+        open={!!winRequestLead}
+        lead={winRequestLead}
+        requestedBy={viewerId}
+        today={monthKeyOf() + "-15"}
+        onSubmit={handleRequestWin}
+        onClose={() => setWinRequestLead(null)}
       />
     </div>
   );

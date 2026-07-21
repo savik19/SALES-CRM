@@ -15,6 +15,8 @@ export default function LeadDetailSidebar({
   groups,
   onChange,
   onClose,
+  onRequestWin, // (lead) => void — opens the "close deal" approval request
+  canRequestWin = false, // eligible to request (owner + active + not pending)
 }) {
   useEffect(() => {
     if (!lead) return;
@@ -67,6 +69,18 @@ export default function LeadDetailSidebar({
               </button>
             </div>
 
+            {lead.approvalStatus === "pending" ? (
+              <div className="border-b border-amber-200 bg-amber-50 px-6 py-2.5 text-xs text-amber-700">
+                ⏳ Close request pending Admin approval.
+              </div>
+            ) : lead.approvalStatus === "rejected" ? (
+              <div className="border-b border-red-200 bg-red-50 px-6 py-2.5 text-xs text-red-700">
+                ✕ Last close request was rejected
+                {lead.approvalReason ? `: “${lead.approvalReason}”` : ""}.
+                Revise and resend.
+              </div>
+            ) : null}
+
             <div className="flex-1 overflow-y-auto px-6 py-4">
               <ExpandedLeadRow
                 lead={lead}
@@ -77,6 +91,22 @@ export default function LeadDetailSidebar({
                 variant="sidebar"
               />
             </div>
+
+            {canRequestWin ? (
+              <div className="border-t border-slate-200 px-6 py-3">
+                <button
+                  type="button"
+                  onClick={() => onRequestWin(lead)}
+                  className="w-full rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
+                >
+                  🏆 Close deal — request approval (Project Started)
+                </button>
+                <p className="mt-1.5 text-center text-[11px] text-slate-400">
+                  Sends the deal to the Admin; credited as won only once
+                  approved.
+                </p>
+              </div>
+            ) : null}
           </>
         ) : null}
       </aside>

@@ -237,6 +237,32 @@ Bulk-assign leads to one DSC. Body `{ "leadIds": string[], "dscId": string }`.
 Commit imported rows. Body `{ "rows": Lead[] }`. Each row must arrive as
 `leadStatus: "New"` and `assignedDscId: ""`. **200** → `{ "imported": number }`.
 
+### Win approval flow (Project Started needs Admin approval)
+
+A deal is credited as **won** only after the Admin approves a DSC's close
+request. The `leadStatus` does **not** move to `Project Started` on the DSC's
+action — it moves when the Admin approves. Three endpoints (mocked in
+`src/lib/leadsApi.js` as `requestWin` / `approveWin` / `rejectWin`):
+
+- `POST /api/leads/:id/request-win` (deal owner) — the DSC submits the close
+  request. Body `{ requestedBy, requestedDate, quotedAmount, closedAmount,
+lineItems:[{offeringId,amount}], note? }`. `closedAmount` = Σ line-item amounts
+  (derived); discount % = `(quoted − closed)/quoted`. Sets
+  `approvalStatus: "pending"` and stores `approvalRequest`. Enforce owner-only.
+- `POST /api/leads/:id/approve-win` (Admin) — applies the requested financials +
+  line items, sets `leadStatus: "Project Started"`, stamps `closedDate` and
+  `wonApprovedDate` (the win is now credited for target + commission), and
+  `approvalStatus: "approved"`.
+- `POST /api/leads/:id/reject-win` (Admin) — Body `{ reason }`. Sets
+  `approvalStatus: "rejected"` + `approvalReason`; the deal keeps its prior
+  status so the DSC can revise and resubmit.
+
+Approval fields on a Lead/Deal: `approvalStatus` (""/pending/approved/rejected),
+`approvalRequest` (the snapshot above), `approvalReason`, `approvalDecidedBy`,
+`approvalDecidedDate`, `wonApprovedDate`. Only `wonApprovedDate` deals count as
+won in the analytics + commission. The Admin reviews pending requests on the
+**Approvals** screen (`/approvals`).
+
 ---
 
 ### User Management (Admin only)

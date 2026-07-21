@@ -9,9 +9,10 @@ import LeadDetailSidebar from "@/components/leads/LeadDetailSidebar";
 import RoleSwitcher from "@/components/leads/RoleSwitcher";
 import BulkAssignBar from "@/components/leads/BulkAssignBar";
 import ImportModal from "@/components/leads/ImportModal";
+import WinRequestModal from "@/components/leads/WinRequestModal";
 import AnalyticsPanel from "@/components/analytics/AnalyticsPanel";
 import { useCompConfig } from "@/lib/compConfig";
-import { personAnalytics, teamAnalytics } from "@/lib/analytics";
+import { personAnalytics, teamAnalytics, isActive } from "@/lib/analytics";
 import { greetingFor, thoughtOfTheDay } from "@/lib/greeting";
 import {
   allKeys,
@@ -22,7 +23,7 @@ import {
 } from "@/components/leads/columns";
 import { useColumnConfig } from "@/lib/columnConfig";
 import { useActiveDscs, useUsers } from "@/lib/usersConfig";
-import { getLeads, updateLead, assignLeads } from "@/lib/leadsApi";
+import { getLeads, updateLead, assignLeads, requestWin } from "@/lib/leadsApi";
 import {
   discountPct,
   recentMonths,
@@ -198,6 +199,7 @@ export default function LeadsPage() {
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [importOpen, setImportOpen] = useState(false);
   const [detailLead, setDetailLead] = useState(null);
+  const [winRequestLead, setWinRequestLead] = useState(null);
   // Pagination — keeps the table a bounded height so it stays usable under the
   // analytics panel.
   const [page, setPage] = useState(1);
@@ -463,6 +465,35 @@ export default function LeadsPage() {
     updateLead(leadId, patch).catch((e) => console.error(e));
   }
 
+  // A close request: the owner submits line items + quoted; the deal goes to
+  // "pending" (not yet Project Started) until the Admin approves on /approvals.
+  function handleRequestWin(payload) {
+    const leadId = winRequestLead?.leadId;
+    if (!leadId) return;
+    const patch = {
+      approvalStatus: "pending",
+      approvalRequest: payload,
+      approvalReason: "",
+    };
+    setAllLeads((rows) =>
+      rows.map((l) => (l.leadId === leadId ? { ...l, ...patch } : l))
+    );
+    setDetailLead((d) => (d && d.leadId === leadId ? { ...d, ...patch } : d));
+    requestWin(leadId, payload).catch((e) => console.error(e));
+    setWinRequestLead(null);
+  }
+
+  // Who may raise a close request: whoever may edit the lead, when it's an active
+  // deal that isn't already pending/won.
+  function canRequestWin(lead) {
+    return (
+      !!lead &&
+      canEditLead(lead) &&
+      isActive(lead.leadStatus) &&
+      lead.approvalStatus !== "pending"
+    );
+  }
+
   function handleBulkAssign(dscId) {
     const ids = [...selectedIds];
     setAllLeads((rows) =>
@@ -666,6 +697,17 @@ export default function LeadsPage() {
         groups={groups}
         onChange={handleFieldChange}
         onClose={() => setDetailLead(null)}
+        canRequestWin={detailLead ? canRequestWin(detailLead) : false}
+        onRequestWin={(lead) => setWinRequestLead(lead)}
+      />
+
+      <WinRequestModal
+        open={!!winRequestLead}
+        lead={winRequestLead}
+        requestedBy={viewerId}
+        today={monthKeyOf() + "-15"}
+        onSubmit={handleRequestWin}
+        onClose={() => setWinRequestLead(null)}
       />
 
       <ImportModal
