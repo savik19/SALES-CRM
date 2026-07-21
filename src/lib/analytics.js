@@ -7,6 +7,7 @@
 
 import { LEAD_STATUSES } from "@/data/mockLeads";
 import { monthsSince, inMonth, isoInRange } from "@/lib/format";
+import { dealCommission, commissionStatus } from "@/lib/commission";
 
 // A "closed"/won deal = Won or any post-sale status (not Cancelled, which is a
 // won deal that fell apart, and not Lost / On Hold).
@@ -130,15 +131,21 @@ export function hasCompOverride(config, userId) {
 }
 
 // Monthly earnings for one person, computed from their EFFECTIVE package `comp`
-// (already resolved via resolvePersonComp) and the global `deductionPct`. The
-// Fixed part is always paid; the Performance Pay AND the commission are paid
-// ONLY when the monthly target is met (offer-letter rule). During training a DSC
-// gets a flat training salary.
+// and the global `deductionPct`. The Fixed part is always paid; the Performance
+// Pay AND commission are paid ONLY when the monthly target is met (offer-letter
+// rule). During training a DSC gets a flat training salary.
+//
+// Commission is CATALOG-based (not a flat %): the caller prices the person's won
+// deals through the Services/Products catalog (lib/commission) and passes the
+// month's total here, split into `finalized` (past the 3-month hold → payable)
+// and `pending` (still in the hold window). Only the finalized part is paid out
+// now; pending is shown so the person can see what's maturing.
 export function personEarnings({
   role,
   inTraining,
   closedCount,
-  salesValue,
+  commission = 0,
+  pendingCommission = 0,
   comp,
   deductionPct,
 }) {
@@ -150,10 +157,10 @@ export function personEarnings({
     return {
       inTraining: true,
       fixedPortionPct: comp.fixedPortionPct,
-      commissionPct: comp.commissionPct,
       fixed: gross,
       performancePay: 0,
       commission: 0,
+      pendingCommission,
       targetMet: false,
       target,
       closedCount,
@@ -168,25 +175,41 @@ export function personEarnings({
     role === "bdm" ? comp.salaryMonthly : comp.baseSalaryMonthly;
   const fixed = (totalSalary * comp.fixedPortionPct) / 100;
   const performancePay = totalSalary - fixed;
-  const commission = ((Number(salesValue) || 0) * comp.commissionPct) / 100;
+  const payableCommission = Number(commission) || 0; // finalized this month
   const targetMet = closedCount >= target;
-  const gross = fixed + (targetMet ? performancePay + commission : 0);
+  const gross = fixed + (targetMet ? performancePay + payableCommission : 0);
   const deductions = (gross * deductionPct) / 100;
   return {
     inTraining: false,
     fixedPortionPct: comp.fixedPortionPct,
-    commissionPct: comp.commissionPct,
     fixed,
     performancePay,
-    commission,
+    commission: payableCommission,
+    pendingCommission,
     targetMet,
     target,
     closedCount,
     gross,
     deductions,
     net: gross - deductions,
-    atRisk: targetMet ? 0 : performancePay + commission,
+    atRisk: targetMet ? 0 : performancePay + payableCommission,
   };
+}
+
+// Price a set of won deals through the catalog for `role`, splitting the total
+// into finalized (past the quarterly hold → payable now) and pending (still in
+// the hold). Reversed/unapproved deals contribute 0. `now` is injectable.
+export function commissionForDeals(deals, config, role, now = new Date()) {
+  let finalized = 0;
+  let pending = 0;
+  for (const deal of deals) {
+    const status = commissionStatus(deal, now);
+    if (status !== "finalized" && status !== "pending") continue;
+    const amount = dealCommission(deal, config, role);
+    if (status === "finalized") finalized += amount;
+    else pending += amount;
+  }
+  return { finalized, pending, total: finalized + pending };
 }
 
 // Full "own leads" analytics for one person for month `ym`, using their
@@ -199,11 +222,18 @@ export function personAnalytics(person, allLeads, config, ym, role = "dsc") {
   const inTraining =
     role === "dsc" &&
     (monthsSince(person.joiningDate) ?? 99) < comp.trainingMonths;
+  // Commission is priced through the catalog over the deals this person won in
+  // the month, split into finalized (payable) and pending (in the 3-month hold).
+  const wonDeals = own.filter(
+    (l) => isWon(l.leadStatus) && inMonth(l.closedDate, ym)
+  );
+  const comm = commissionForDeals(wonDeals, config, role);
   const earnings = personEarnings({
     role,
     inTraining,
     closedCount: metrics.won,
-    salesValue: metrics.wonValue,
+    commission: comm.finalized,
+    pendingCommission: comm.pending,
     comp,
     deductionPct: config.deductionPct,
   });
@@ -228,11 +258,18 @@ export function teamAnalytics(allLeads, dscs, config, manager, ym) {
   const companyMetrics = monthMetrics(allLeads, ym);
   const perDsc = dscs.map((d) => dscAnalytics(d, allLeads, config, ym));
   const bdmComp = resolvePersonComp(config, "bdm", manager);
+  // The BDM earns the manager override (BDM catalog rate) on EVERY team-won deal
+  // in the month — priced through the catalog, same finalized/pending split.
+  const companyWonDeals = allLeads.filter(
+    (l) => isWon(l.leadStatus) && inMonth(l.closedDate, ym)
+  );
+  const bdmComm = commissionForDeals(companyWonDeals, config, "bdm");
   const bdmEarnings = personEarnings({
     role: "bdm",
     inTraining: false,
     closedCount: companyMetrics.won,
-    salesValue: companyMetrics.wonValue,
+    commission: bdmComm.finalized,
+    pendingCommission: bdmComm.pending,
     comp: bdmComp,
     deductionPct: config.deductionPct,
   });

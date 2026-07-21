@@ -1,0 +1,304 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import Topbar from "@/components/layout/Topbar";
+import { getLeads, approveWin, rejectWin } from "@/lib/leadsApi";
+import { useCompConfig } from "@/lib/compConfig";
+import { dscName } from "@/data/mockLeads";
+import { findOffering, dealCommission } from "@/lib/commission";
+import { formatINR, formatDate, discountPctLabel } from "@/lib/format";
+
+// Approvals (Admin). A DSC's request to close a deal ("Project Started") lands
+// here; the Admin reviews the financials + line items and Accepts or Rejects.
+// Accepting credits the win (sets wonApprovedDate) so it counts toward the DSC's
+// target and commission; Rejecting returns it with a reason to revise.
+const ADMIN_ID = "u-admin"; // demo decider; real auth supplies the logged-in Admin
+
+function money(n) {
+  return formatINR(Math.round(n || 0));
+}
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+export default function ApprovalsPage() {
+  const { config } = useCompConfig();
+  const [leads, setLeads] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [rejectingId, setRejectingId] = useState(null);
+  const [reason, setReason] = useState("");
+
+  function load() {
+    setLoading(true);
+    getLeads().then((rows) => {
+      setLeads(rows);
+      setLoading(false);
+    });
+  }
+  useEffect(() => {
+    load();
+  }, []);
+
+  const pending = useMemo(
+    () => leads.filter((l) => l.approvalStatus === "pending"),
+    [leads]
+  );
+  const decided = useMemo(
+    () =>
+      leads
+        .filter(
+          (l) =>
+            l.approvalStatus === "approved" || l.approvalStatus === "rejected"
+        )
+        .sort((a, b) =>
+          (b.approvalDecidedDate || "").localeCompare(
+            a.approvalDecidedDate || ""
+          )
+        )
+        .slice(0, 8),
+    [leads]
+  );
+
+  function offeringName(id) {
+    return findOffering(config, id)?.name || "Unknown offering";
+  }
+
+  async function accept(lead) {
+    await approveWin(lead.leadId, {
+      adminId: ADMIN_ID,
+      approvedDate: todayISO(),
+    });
+    load();
+  }
+  async function confirmReject(lead) {
+    await rejectWin(lead.leadId, {
+      adminId: ADMIN_ID,
+      reason: reason.trim() || "No reason given",
+      decidedDate: todayISO(),
+    });
+    setRejectingId(null);
+    setReason("");
+    load();
+  }
+
+  return (
+    <div className="flex h-full flex-col">
+      <Topbar
+        title="Approvals"
+        subtitle="Admin — review deal-close (Project Started) requests. Approving credits the win to the DSC."
+      />
+
+      <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
+        {/* Pending */}
+        <section>
+          <h3 className="mb-2 text-sm font-semibold text-slate-800">
+            Pending{" "}
+            <span className="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+              {pending.length}
+            </span>
+          </h3>
+
+          {loading ? (
+            <p className="py-10 text-center text-sm text-slate-500">Loading…</p>
+          ) : pending.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-slate-200 py-10 text-center text-sm text-slate-400">
+              No pending approvals. New close requests from DSCs appear here.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {pending.map((lead) => {
+                const req = lead.approvalRequest || {};
+                const items = req.lineItems || lead.lineItems || [];
+                const dscComm = dealCommission(
+                  { lineItems: items },
+                  config,
+                  "dsc"
+                );
+                const bdmComm = dealCommission(
+                  { lineItems: items },
+                  config,
+                  "bdm"
+                );
+                return (
+                  <div
+                    key={lead.leadId}
+                    className="rounded-xl border border-slate-200 bg-white p-4"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-slate-900">
+                            {lead.company}
+                          </span>
+                          <span className="font-mono text-xs text-slate-400">
+                            {lead.leadId}
+                          </span>
+                        </div>
+                        <div className="mt-0.5 text-xs text-slate-500">
+                          Requested by{" "}
+                          <span className="font-medium text-slate-700">
+                            {dscName(req.requestedBy || lead.assignedDscId)}
+                          </span>{" "}
+                          · {formatDate(req.requestedDate)}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => accept(lead)}
+                          className="rounded-lg bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRejectingId(lead.leadId);
+                            setReason("");
+                          }}
+                          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      <Figure label="Quoted" value={money(req.quotedAmount)} />
+                      <Figure label="Closed" value={money(req.closedAmount)} />
+                      <Figure
+                        label="Discount"
+                        value={discountPctLabel({
+                          quotedAmount: req.quotedAmount,
+                          closedAmount: req.closedAmount,
+                        })}
+                      />
+                      <Figure
+                        label="Commission (DSC / BDM)"
+                        value={`${money(dscComm)} / ${money(bdmComm)}`}
+                      />
+                    </div>
+
+                    <div className="mt-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                        Line items
+                      </div>
+                      <ul className="mt-1 space-y-0.5 text-sm text-slate-600">
+                        {items.map((it, i) => (
+                          <li key={i} className="flex justify-between">
+                            <span>{offeringName(it.offeringId)}</span>
+                            <span className="tabular-nums">
+                              {money(it.amount)}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    {req.note ? (
+                      <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                        “{req.note}”
+                      </p>
+                    ) : null}
+
+                    {rejectingId === lead.leadId ? (
+                      <div className="mt-3 rounded-lg border border-slate-200 p-3">
+                        <label className="mb-1 block text-xs font-medium text-slate-600">
+                          Reason for rejection
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={reason}
+                          onChange={(e) => setReason(e.target.value)}
+                          className="w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+                          placeholder="Why is this being sent back?"
+                        />
+                        <div className="mt-2 flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setRejectingId(null)}
+                            className="rounded-lg border border-slate-300 px-3 py-1 text-sm text-slate-700 hover:bg-slate-50"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => confirmReject(lead)}
+                            className="rounded-lg bg-red-600 px-3 py-1 text-sm font-medium text-white hover:bg-red-700"
+                          >
+                            Confirm reject
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* Recently decided */}
+        {decided.length ? (
+          <section>
+            <h3 className="mb-2 text-sm font-semibold text-slate-800">
+              Recently decided
+            </h3>
+            <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-400">
+                  <tr>
+                    <th className="px-4 py-2 font-semibold">Company</th>
+                    <th className="px-4 py-2 font-semibold">DSC</th>
+                    <th className="px-4 py-2 font-semibold">Decision</th>
+                    <th className="px-4 py-2 font-semibold">When</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {decided.map((lead) => (
+                    <tr key={lead.leadId} className="border-t border-slate-100">
+                      <td className="px-4 py-2 font-medium text-slate-800">
+                        {lead.company}
+                      </td>
+                      <td className="px-4 py-2 text-slate-600">
+                        {dscName(lead.assignedDscId)}
+                      </td>
+                      <td className="px-4 py-2">
+                        {lead.approvalStatus === "approved" ? (
+                          <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+                            Approved
+                          </span>
+                        ) : (
+                          <span
+                            className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700"
+                            title={lead.approvalReason}
+                          >
+                            Rejected
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2 text-slate-500">
+                        {formatDate(lead.approvalDecidedDate)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function Figure({ label, value }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-2.5">
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+        {label}
+      </div>
+      <div className="mt-0.5 text-sm font-semibold text-slate-800">{value}</div>
+    </div>
+  );
+}

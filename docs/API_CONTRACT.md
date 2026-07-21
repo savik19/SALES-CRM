@@ -62,8 +62,20 @@ or an `Authorization` header.
   "assignedDate": "2026-07-02", // ISO date the lead was assigned to its DSC
   "closedDate": "2026-07-11", // ISO date a won lead was closed; "" otherwise
   "notes": "Wants a revised quote…", // long text
+
+  // ---- Company → Deal model (see below) ----
+  "companyId": "co-sri-vari-textiles", // groups all deals for one company
+  "lineItems": [{ "offeringId": "svc-custom-software", "amount": 440000 }],
+  "wonApprovedDate": "2026-07-11", // set by the Admin on approval; "" until then
+  "approvalStatus": "approved", // "" | "pending" | "approved" | "rejected"
 }
 ```
+
+**Company → Deal.** Each record is really a **Deal**; `companyId` groups all
+deals for one **Company** (a company accumulates many deals over time — a new
+project, an upsell, a renewal). The detail view lists "other deals for this
+company". `lineItems` (what was sold) drive commission (see the catalog); the
+`approval*` / `wonApprovedDate` fields drive the win-approval flow (below).
 
 > **Discount %** (schema column 22) is **computed, never stored**:
 > `(quotedAmount − closedAmount) / quotedAmount × 100`. The frontend derives it;
@@ -237,6 +249,32 @@ Bulk-assign leads to one DSC. Body `{ "leadIds": string[], "dscId": string }`.
 Commit imported rows. Body `{ "rows": Lead[] }`. Each row must arrive as
 `leadStatus: "New"` and `assignedDscId: ""`. **200** → `{ "imported": number }`.
 
+### Win approval flow (Project Started needs Admin approval)
+
+A deal is credited as **won** only after the Admin approves a DSC's close
+request. The `leadStatus` does **not** move to `Project Started` on the DSC's
+action — it moves when the Admin approves. Three endpoints (mocked in
+`src/lib/leadsApi.js` as `requestWin` / `approveWin` / `rejectWin`):
+
+- `POST /api/leads/:id/request-win` (deal owner) — the DSC submits the close
+  request. Body `{ requestedBy, requestedDate, quotedAmount, closedAmount,
+lineItems:[{offeringId,amount}], note? }`. `closedAmount` = Σ line-item amounts
+  (derived); discount % = `(quoted − closed)/quoted`. Sets
+  `approvalStatus: "pending"` and stores `approvalRequest`. Enforce owner-only.
+- `POST /api/leads/:id/approve-win` (Admin) — applies the requested financials +
+  line items, sets `leadStatus: "Project Started"`, stamps `closedDate` and
+  `wonApprovedDate` (the win is now credited for target + commission), and
+  `approvalStatus: "approved"`.
+- `POST /api/leads/:id/reject-win` (Admin) — Body `{ reason }`. Sets
+  `approvalStatus: "rejected"` + `approvalReason`; the deal keeps its prior
+  status so the DSC can revise and resubmit.
+
+Approval fields on a Lead/Deal: `approvalStatus` (""/pending/approved/rejected),
+`approvalRequest` (the snapshot above), `approvalReason`, `approvalDecidedBy`,
+`approvalDecidedDate`, `wonApprovedDate`. Only `wonApprovedDate` deals count as
+won in the analytics + commission. The Admin reviews pending requests on the
+**Approvals** screen (`/approvals`).
+
 ---
 
 ### User Management (Admin only)
@@ -274,11 +312,10 @@ reflects immediately.
 ```jsonc
 {
   "currency": "INR",
-  "deductionPct": 10, // statutory deduction applied to gross → net
+  "deductionPct": 0, // statutory deduction (PF/tax) on gross → net; 0 for now
   "bdm": {
     "salaryMonthly": 40000, // Fixed part + performance pay
     "fixedPortionPct": 75, // fixed always paid; the rest is target-gated
-    "commissionPct": 5, // % of whole-team sales, if company target met
     "monthlyLeadTarget": 20, // company: closed leads / month
   },
   "dsc": {
@@ -286,12 +323,11 @@ reflects immediately.
     "trainingSalaryMonthly": 15000, // flat pay during training
     "trainingMonths": 2, // joinedMonthsAgo < this ⇒ in training
     "fixedPortionPct": 75,
-    "commissionPct": 3, // % of own sales, if own target met
     "monthlyLeadTarget": 5, // each DSC: closed leads / month
   },
   // Per-person overrides — only the keys present override that role default.
   "overrides": {
-    "u-anaya": { "commissionPct": 10 }, // e.g. a DSC on a custom package
+    "u-anaya": { "monthlyLeadTarget": 8 }, // e.g. a DSC on a custom target
   },
 }
 ```
@@ -300,11 +336,72 @@ Earnings rule (see `personEarnings`): the Fixed portion is always paid; the
 Performance Pay **and** commission are paid ONLY when the person meets their
 monthly target (`closed ≥ target`). A DSC within the training window gets the flat
 training salary instead. Deductions apply to gross to get net take-home.
+**Commission is not a flat %** — it's priced through the catalog (below): for the
+person's won deals in the month, `commissionForDeals(deals, config, role)` sums
+each deal's line-item commission and splits it into **finalized** (past the
+3-month hold → the payable part gated by the target) and **pending** (still in the
+hold, shown but not yet paid). The BDM earns the BDM-rate override on **every**
+team-won deal.
 
 - `GET /api/compensation` → the config above.
 - `PUT /api/compensation` — save the whole config (defaults + overrides). **200**.
 - (Optional granular) `PUT /api/compensation/overrides/:userId` /
   `DELETE …/:userId` to set/clear one person's override.
+
+### Commission catalog — Services & Products (Admin only)
+
+The same config also carries the **commission catalog**: what the company sells
+and what closing each thing pays. It is the single source of truth for commission
+and lives under `config.services` / `config.products`. Each **offering** sets a
+commission rule **per role** — a BDM earns a manager override on the same sale a
+DSC closes (usually higher).
+
+```jsonc
+{
+  // …salary config above…
+  "services": [
+    {
+      "id": "svc-custom-software",
+      "name": "Custom Software",
+      "kind": "service",
+      "dsc": { "type": "fixed", "value": 5000 }, // DSC gets a flat ₹5,000
+      "bdm": { "type": "fixed", "value": 8000 }, // BDM override ₹8,000
+      "active": true,
+    },
+  ],
+  "products": [
+    {
+      "id": "prd-saas-subscription",
+      "name": "SaaS Subscription",
+      "kind": "product",
+      "dsc": { "type": "percent", "value": 3 }, // DSC gets 3% of the plan value
+      "bdm": { "type": "percent", "value": 5 }, // BDM override 5%
+      "active": true,
+    },
+  ],
+}
+```
+
+A commission **rule** is `{ type, value }`: `type: "fixed"` pays a flat ₹ amount
+per sale (typical for services); `type: "percent"` pays `value`% of the sold
+amount (typical for subscription products). Services default to fixed, products
+to percent, but either can use either.
+
+**Commission math** lives in `src/lib/commission.js` (pure, no React) and reads a
+won **Deal**'s line items — `deal.lineItems: [{ offeringId, amount }]`:
+
+- `dealCommission(deal, config, role)` — Σ over line items of that role's rule.
+- `dealClosedValue(deal)` — Σ of line-item amounts (the contract value is
+  **derived** from the items, so the commission base can't be inflated).
+- `commissionStatus(deal, now)` — `none` (not an approved win) · `reversed`
+  (cancelled/refunded → ₹0) · `pending` (approved, still inside the
+  `HOLD_MONTHS`-month quarterly hold) · `finalized` (hold elapsed → payable).
+- `commissionRollup(deals, config, role, now)` → `{ finalized, pending, total }`.
+
+The Deal shape (`lineItems`, `wonApprovedDate`, `cancelled`) is delivered by the
+Company → Deal model; the catalog + math above are the contract the backend
+mirrors. Fixed vs percent, the per-role rates, and the hold window are all data,
+so tuning them is an Admin edit, not a code change.
 
 ## Roles & scoping (Build Brief §4)
 

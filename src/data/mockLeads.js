@@ -514,6 +514,36 @@ const RAW_LEADS = [
     lostReason: "",
   },
   {
+    // A SECOND deal for the same company (Company → Deal model): the Mobile App
+    // upsell that follows Sri Vari's won Custom Software deal above. Both share
+    // the company, so each appears under the other's "Other deals" section.
+    leadId: "SCRIPT8034",
+    company: "Sri Vari Textiles",
+    industry: "Manufacturing",
+    contactPerson: "Karthik Subramanian",
+    roleTitle: "Director",
+    phone: "+91 99940 55667",
+    email: "karthik@srivaritextiles.com",
+    city: "Tirupur",
+    country: "India",
+    website: "https://srivaritextiles.com",
+    linkedinUrl: "https://linkedin.com/in/karthiksubramanian",
+    leadSource: "Referral",
+    leadStatus: "Negotiation",
+    priority: "High",
+    lastContactDate: "2026-07-12",
+    nextFollowUpDate: "2026-07-22",
+    notes: "Upsell: Mobile app for the ERP — follow-on to the won deal.",
+    assignedDscId: "u-anaya",
+    attemptCount: 3,
+    servicesPitched: ["Mobile App"],
+    servicesInterested: ["Mobile App"],
+    servicesOnboarded: [],
+    quotedAmount: 260000,
+    closedAmount: null,
+    lostReason: "",
+  },
+  {
     leadId: "SCRIPT8009",
     company: "Marina Realty Partners",
     industry: "Real Estate",
@@ -1274,14 +1304,71 @@ function _num(id) {
   const n = parseInt(String(id).replace(/\D/g, ""), 10);
   return Number.isNaN(n) ? 0 : n;
 }
+
+// ---- Deal enrichment (Company → Deal model, commission line items) ----------
+// A won deal carries "line items" (offeringId + amount) so the commission engine
+// (lib/commission) can price it against the catalog. Seed ids mirror the
+// compensation catalog (lib/compConfig). Everything here is mock seeding; a real
+// backend stores line items directly on the deal.
+const OFFERING_ID_BY_NAME = {
+  "Custom Software": "svc-custom-software",
+  "Website Development": "svc-website",
+  "Digital Marketing": "svc-digital-marketing",
+  "AI Tools": "svc-ai-tools",
+  "Mobile App": "svc-mobile-app",
+  "SaaS Subscription": "prd-saas-subscription",
+};
+
+// A stable company id from the company name, so deals for the same company can be
+// grouped (a company can have many deals over time).
+function _companyId(company) {
+  return (
+    "co-" +
+    String(company || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+  );
+}
+
+// Build commission line items for a won deal from the services it onboarded (or,
+// failing that, showed interest in), splitting its value across them.
+function _lineItems(lead, won) {
+  if (!won) return [];
+  const source =
+    lead.servicesOnboarded && lead.servicesOnboarded.length
+      ? lead.servicesOnboarded
+      : lead.servicesInterested && lead.servicesInterested.length
+        ? lead.servicesInterested
+        : ["Custom Software"];
+  const names = source.filter((n) => OFFERING_ID_BY_NAME[n]);
+  const list = names.length ? names : ["Custom Software"];
+  const total = Number(lead.closedAmount) || Number(lead.quotedAmount) || 0;
+  const each = Math.round(total / list.length);
+  return list.map((n) => ({
+    offeringId: OFFERING_ID_BY_NAME[n],
+    amount: each,
+  }));
+}
+
 function withDates(lead) {
   const n = _num(lead.leadId);
   const back = n % 4; // assigned 0–3 months ago
   const assignedDate = _ym(back, ((n * 7) % 27) + 1);
-  const closedDate = _WON.has(lead.leadStatus)
+  const won = _WON.has(lead.leadStatus);
+  const closedDate = won
     ? _ym(back === 0 ? 0 : n % (back + 1), ((n * 5) % 27) + 1) // same month or newer
     : "";
-  return { ...lead, assignedDate, closedDate };
+  return {
+    ...lead,
+    companyId: _companyId(lead.company),
+    assignedDate,
+    closedDate,
+    // Seed existing wins as already Admin-approved so commission computes today.
+    // The approval flow sets this (and gates the win) for new deals.
+    wonApprovedDate: won ? closedDate : "",
+    lineItems: _lineItems(lead, won),
+  };
 }
 
 export const MOCK_LEADS = RAW_LEADS.map(withDates);

@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import Topbar from "@/components/layout/Topbar";
 import PersonCompTable from "@/components/settings/PersonCompTable";
 import PersonCompModal from "@/components/settings/PersonCompModal";
-import { useCompConfig } from "@/lib/compConfig";
+import CatalogEditor from "@/components/settings/CatalogEditor";
+import { useCompConfig, blankOffering } from "@/lib/compConfig";
 import { useUsers } from "@/lib/usersConfig";
 
 // ---------------------------------------------------------------------------
@@ -89,6 +90,40 @@ export default function CompensationPage() {
     });
   }
 
+  // ---- Catalog (Services / Products) editing on the draft ------------------
+  const catalogKey = (kind) => (kind === "product" ? "products" : "services");
+
+  function addOffering(kind) {
+    setSaved(false);
+    setDraft((d) => {
+      const next = JSON.parse(JSON.stringify(d));
+      const key = catalogKey(kind);
+      const id = `${kind === "product" ? "prd" : "svc"}-${Date.now().toString(36)}`;
+      next[key] = [...(next[key] || []), blankOffering(kind, id)];
+      return next;
+    });
+  }
+  function changeOffering(kind, id, patch) {
+    setSaved(false);
+    setDraft((d) => {
+      const next = JSON.parse(JSON.stringify(d));
+      const key = catalogKey(kind);
+      next[key] = (next[key] || []).map((o) =>
+        o.id === id ? { ...o, ...patch } : o
+      );
+      return next;
+    });
+  }
+  function removeOffering(kind, id) {
+    setSaved(false);
+    setDraft((d) => {
+      const next = JSON.parse(JSON.stringify(d));
+      const key = catalogKey(kind);
+      next[key] = (next[key] || []).filter((o) => o.id !== id);
+      return next;
+    });
+  }
+
   // Store (or clear) one person's override in the draft.
   function setOverride(userId, overrideOrNull) {
     setSaved(false);
@@ -159,7 +194,7 @@ export default function CompensationPage() {
         {/* -------- Company defaults (first) -------- */}
         <Section
           title="BDM — company default"
-          subtitle="Applies to every BDM unless overridden above."
+          subtitle="Applies to every BDM unless overridden above. Commission is set per offering in the Services & Products catalog below."
         >
           <Grid>
             <NumberField
@@ -177,13 +212,6 @@ export default function CompensationPage() {
               help="Always paid; the rest is performance pay (target-gated)"
             />
             <NumberField
-              label="Commission on every sale"
-              value={draft.bdm.commissionPct}
-              onChange={(v) => set("bdm.commissionPct", v)}
-              suffix="%"
-              help="Whole team's sales; paid only if company target met"
-            />
-            <NumberField
               label="Company monthly target"
               value={draft.bdm.monthlyLeadTarget}
               onChange={(v) => set("bdm.monthlyLeadTarget", v)}
@@ -195,7 +223,7 @@ export default function CompensationPage() {
 
         <Section
           title="DSC — company default"
-          subtitle="Applies to every DSC unless overridden above."
+          subtitle="Applies to every DSC unless overridden above. Commission is set per offering in the Services & Products catalog below."
         >
           <Grid>
             <NumberField
@@ -224,13 +252,6 @@ export default function CompensationPage() {
               suffix="%"
             />
             <NumberField
-              label="Commission on own sales"
-              value={draft.dsc.commissionPct}
-              onChange={(v) => set("dsc.commissionPct", v)}
-              suffix="%"
-              help="Paid only if the DSC's monthly target is met"
-            />
-            <NumberField
               label="DSC monthly target"
               value={draft.dsc.monthlyLeadTarget}
               onChange={(v) => set("dsc.monthlyLeadTarget", v)}
@@ -250,6 +271,33 @@ export default function CompensationPage() {
               help="Applied to gross pay to get net take-home"
             />
           </Grid>
+        </Section>
+
+        {/* -------- Commission catalog (Services & Products) -------- */}
+        <Section
+          title="Services & Products — commission catalog"
+          subtitle="What the company sells and what closing each one pays. Services usually pay a flat amount; SaaS/subscription products pay a % of the plan value. The BDM override is what the manager earns on the same sale. These rates feed the DSC and BDM commission in the analytics."
+        >
+          <div className="space-y-5">
+            <CatalogEditor
+              title="Services"
+              subtitle="One-off engagements — typically a flat commission per sale."
+              addLabel="Add service"
+              items={draft.services || []}
+              onAdd={() => addOffering("service")}
+              onChange={(id, patch) => changeOffering("service", id, patch)}
+              onRemove={(id) => removeOffering("service", id)}
+            />
+            <CatalogEditor
+              title="Products (SaaS / subscription)"
+              subtitle="Fixed-price plans — typically a % of the plan value."
+              addLabel="Add product"
+              items={draft.products || []}
+              onAdd={() => addOffering("product")}
+              onChange={(id, patch) => changeOffering("product", id, patch)}
+              onRemove={(id) => removeOffering("product", id)}
+            />
+          </div>
         </Section>
 
         {/* -------- Per-person overrides (after the defaults) -------- */}
