@@ -274,7 +274,7 @@ reflects immediately.
 ```jsonc
 {
   "currency": "INR",
-  "deductionPct": 10, // statutory deduction applied to gross → net
+  "deductionPct": 0, // statutory deduction (PF/tax) on gross → net; 0 for now
   "bdm": {
     "salaryMonthly": 40000, // Fixed part + performance pay
     "fixedPortionPct": 75, // fixed always paid; the rest is target-gated
@@ -305,6 +305,61 @@ training salary instead. Deductions apply to gross to get net take-home.
 - `PUT /api/compensation` — save the whole config (defaults + overrides). **200**.
 - (Optional granular) `PUT /api/compensation/overrides/:userId` /
   `DELETE …/:userId` to set/clear one person's override.
+
+### Commission catalog — Services & Products (Admin only)
+
+The same config also carries the **commission catalog**: what the company sells
+and what closing each thing pays. It is the single source of truth for commission
+and lives under `config.services` / `config.products`. Each **offering** sets a
+commission rule **per role** — a BDM earns a manager override on the same sale a
+DSC closes (usually higher).
+
+```jsonc
+{
+  // …salary config above…
+  "services": [
+    {
+      "id": "svc-custom-software",
+      "name": "Custom Software",
+      "kind": "service",
+      "dsc": { "type": "fixed", "value": 5000 }, // DSC gets a flat ₹5,000
+      "bdm": { "type": "fixed", "value": 8000 }, // BDM override ₹8,000
+      "active": true,
+    },
+  ],
+  "products": [
+    {
+      "id": "prd-saas-subscription",
+      "name": "SaaS Subscription",
+      "kind": "product",
+      "dsc": { "type": "percent", "value": 3 }, // DSC gets 3% of the plan value
+      "bdm": { "type": "percent", "value": 5 }, // BDM override 5%
+      "active": true,
+    },
+  ],
+}
+```
+
+A commission **rule** is `{ type, value }`: `type: "fixed"` pays a flat ₹ amount
+per sale (typical for services); `type: "percent"` pays `value`% of the sold
+amount (typical for subscription products). Services default to fixed, products
+to percent, but either can use either.
+
+**Commission math** lives in `src/lib/commission.js` (pure, no React) and reads a
+won **Deal**'s line items — `deal.lineItems: [{ offeringId, amount }]`:
+
+- `dealCommission(deal, config, role)` — Σ over line items of that role's rule.
+- `dealClosedValue(deal)` — Σ of line-item amounts (the contract value is
+  **derived** from the items, so the commission base can't be inflated).
+- `commissionStatus(deal, now)` — `none` (not an approved win) · `reversed`
+  (cancelled/refunded → ₹0) · `pending` (approved, still inside the
+  `HOLD_MONTHS`-month quarterly hold) · `finalized` (hold elapsed → payable).
+- `commissionRollup(deals, config, role, now)` → `{ finalized, pending, total }`.
+
+The Deal shape (`lineItems`, `wonApprovedDate`, `cancelled`) is delivered by the
+Company → Deal model; the catalog + math above are the contract the backend
+mirrors. Fixed vs percent, the per-role rates, and the hold window are all data,
+so tuning them is an Admin edit, not a code change.
 
 ## Roles & scoping (Build Brief §4)
 

@@ -57,6 +57,37 @@ export function fieldsForRole(role) {
   return role === "bdm" ? BDM_FIELDS : DSC_FIELDS;
 }
 
+// ---- Commission catalog ---------------------------------------------------
+// The company sells "offerings" — Services (usually one-off) and Products (SaaS
+// / subscriptions). The Admin maintains this catalog; it is the SINGLE SOURCE OF
+// TRUTH for what selling each offering pays. Commission is set PER ROLE, because
+// a BDM earns a manager override on the same sale a DSC closes (usually higher).
+//
+// A commission rule = { type, value }:
+//   type "fixed"   → a flat ₹ amount per sale (typical for services)
+//   type "percent" → a % of the line-item amount / contract value (typical for
+//                    subscription products, where the price is well-defined)
+//
+// An offering = {
+//   id, name,
+//   kind: "service" | "product",
+//   dsc: { type, value },   // what the closing DSC earns
+//   bdm: { type, value },   // the manager override the BDM earns on that sale
+//   active,                 // inactive offerings can't be added to new deals
+// }
+// A won Deal carries line items (offeringId + amount); see lib/commission.js for
+// the pure math that turns those into each person's commission.
+export const COMMISSION_TYPES = ["fixed", "percent"];
+export const OFFERING_KINDS = ["service", "product"];
+
+// Blank offering of a given kind (services default to fixed, products to %).
+export function blankOffering(kind, id) {
+  const isProduct = kind === "product";
+  const rule = () =>
+    isProduct ? { type: "percent", value: 0 } : { type: "fixed", value: 0 };
+  return { id, name: "", kind, dsc: rule(), bdm: rule(), active: true };
+}
+
 // Presentation metadata for each package field (shared by the defaults form and
 // the per-person override editor) so labels/units stay consistent everywhere.
 export const FIELD_META = {
@@ -75,7 +106,65 @@ export const FIELD_META = {
 export const DEFAULT_COMP = {
   currency: "INR",
   // Statutory-style deduction applied to gross pay (PF / professional tax…).
-  deductionPct: 10,
+  // Zero for now — the company isn't deducting PF/tax yet; the Admin can set it
+  // later without any code change.
+  deductionPct: 0,
+  // ---- Commission catalog (Services & Products) ----------------------------
+  // Seeded from ScriptGuru's offerings; every field is Admin-editable. Services
+  // pay a flat amount; the SaaS product pays a % of the plan value. BDM rates are
+  // the manager override on the same sale (higher than the DSC's).
+  services: [
+    {
+      id: "svc-custom-software",
+      name: "Custom Software",
+      kind: "service",
+      dsc: { type: "fixed", value: 5000 },
+      bdm: { type: "fixed", value: 8000 },
+      active: true,
+    },
+    {
+      id: "svc-website",
+      name: "Website Development",
+      kind: "service",
+      dsc: { type: "fixed", value: 3000 },
+      bdm: { type: "fixed", value: 5000 },
+      active: true,
+    },
+    {
+      id: "svc-digital-marketing",
+      name: "Digital Marketing",
+      kind: "service",
+      dsc: { type: "fixed", value: 3000 },
+      bdm: { type: "fixed", value: 5000 },
+      active: true,
+    },
+    {
+      id: "svc-ai-tools",
+      name: "AI Tools",
+      kind: "service",
+      dsc: { type: "fixed", value: 4000 },
+      bdm: { type: "fixed", value: 6000 },
+      active: true,
+    },
+    {
+      id: "svc-mobile-app",
+      name: "Mobile App",
+      kind: "service",
+      dsc: { type: "fixed", value: 5000 },
+      bdm: { type: "fixed", value: 8000 },
+      active: true,
+    },
+  ],
+  products: [
+    {
+      id: "prd-saas-subscription",
+      name: "SaaS Subscription",
+      kind: "product",
+      dsc: { type: "percent", value: 3 },
+      bdm: { type: "percent", value: 5 },
+      active: true,
+    },
+  ],
   // ---- Role defaults -------------------------------------------------------
   bdm: {
     salaryMonthly: 40000, // total = Fixed 30,000 + Performance Pay 10,000
@@ -114,6 +203,9 @@ function withDefaults(saved) {
     ...saved,
     bdm: { ...base.bdm, ...(saved.bdm || {}) },
     dsc: { ...base.dsc, ...(saved.dsc || {}) },
+    // Catalog arrays: use the saved list if present, else seed from defaults.
+    services: Array.isArray(saved.services) ? saved.services : base.services,
+    products: Array.isArray(saved.products) ? saved.products : base.products,
     overrides: saved.overrides || {},
   };
 }
