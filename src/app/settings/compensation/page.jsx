@@ -194,7 +194,7 @@ export default function CompensationPage() {
         {/* -------- Company defaults (first) -------- */}
         <Section
           title="BDM — company default"
-          subtitle="Applies to every BDM unless overridden above."
+          subtitle="Applies to every BDM unless overridden above. Commission is set per offering in the Services & Products catalog below."
         >
           <Grid>
             <NumberField
@@ -212,13 +212,6 @@ export default function CompensationPage() {
               help="Always paid; the rest is performance pay (target-gated)"
             />
             <NumberField
-              label="Commission on every sale"
-              value={draft.bdm.commissionPct}
-              onChange={(v) => set("bdm.commissionPct", v)}
-              suffix="%"
-              help="Whole team's sales; paid only if company target met"
-            />
-            <NumberField
               label="Company monthly target"
               value={draft.bdm.monthlyLeadTarget}
               onChange={(v) => set("bdm.monthlyLeadTarget", v)}
@@ -230,7 +223,7 @@ export default function CompensationPage() {
 
         <Section
           title="DSC — company default"
-          subtitle="Applies to every DSC unless overridden above."
+          subtitle="Applies to every DSC unless overridden above. Commission is set per offering in the Services & Products catalog below."
         >
           <Grid>
             <NumberField
@@ -257,13 +250,6 @@ export default function CompensationPage() {
               value={draft.dsc.fixedPortionPct}
               onChange={(v) => set("dsc.fixedPortionPct", v)}
               suffix="%"
-            />
-            <NumberField
-              label="Commission on own sales"
-              value={draft.dsc.commissionPct}
-              onChange={(v) => set("dsc.commissionPct", v)}
-              suffix="%"
-              help="Paid only if the DSC's monthly target is met"
             />
             <NumberField
               label="DSC monthly target"

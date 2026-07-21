@@ -90,7 +90,7 @@ function EarningsCard({ title, e, monthLbl }) {
           paid: e.targetMet,
         },
         {
-          label: `Commission (${e.commissionPct ?? 0}%)`,
+          label: "Commission (catalog · finalized)",
           value: e.commission,
           paid: e.targetMet,
         },
@@ -147,6 +147,12 @@ function EarningsCard({ title, e, monthLbl }) {
           </dd>
         </div>
       </dl>
+      {e.pendingCommission > 0 ? (
+        <p className="mt-2 text-xs text-slate-500">
+          {money(e.pendingCommission)} commission in the 3-month hold —
+          finalizes after the quarter (reversed if the deal cancels).
+        </p>
+      ) : null}
       {!e.inTraining && !e.targetMet && e.atRisk > 0 ? (
         <p className="mt-2 text-xs text-amber-600">
           {money(e.atRisk)} unlocks when {e.target} deals close in {monthLbl}{" "}

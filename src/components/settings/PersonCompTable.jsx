@@ -54,7 +54,6 @@ export default function PersonCompTable({ users, draft, onEdit, onReset }) {
               <th className="px-4 py-2.5">Person</th>
               <th className="px-4 py-2.5">Role</th>
               <th className="px-4 py-2.5">Salary / mo</th>
-              <th className="px-4 py-2.5">Commission</th>
               <th className="px-4 py-2.5">Target</th>
               <th className="px-4 py-2.5">Package</th>
               <th className="px-4 py-2.5 text-right">Actions</th>
@@ -79,9 +78,6 @@ export default function PersonCompTable({ users, draft, onEdit, onReset }) {
                   </td>
                   <td className="px-4 py-2.5 tabular-nums text-slate-600">
                     {money(salary)}
-                  </td>
-                  <td className="px-4 py-2.5 tabular-nums text-slate-600">
-                    {comp.commissionPct}%
                   </td>
                   <td className="px-4 py-2.5 tabular-nums text-slate-600">
                     {comp.monthlyLeadTarget}

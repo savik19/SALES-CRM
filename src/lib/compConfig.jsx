@@ -38,10 +38,12 @@ import { createContext, useContext, useEffect, useState } from "react";
 
 // The fields that make up a role package. Keeping them named lets the override
 // editor iterate the same schema for defaults and per-person packages.
+// Commission is no longer a flat % here — it's priced from the Services &
+// Products catalog (below). These are the salary/target fields the defaults form
+// and the per-person override editor share.
 export const BDM_FIELDS = [
   "salaryMonthly",
   "fixedPortionPct",
-  "commissionPct",
   "monthlyLeadTarget",
 ];
 export const DSC_FIELDS = [
@@ -49,7 +51,6 @@ export const DSC_FIELDS = [
   "trainingSalaryMonthly",
   "trainingMonths",
   "fixedPortionPct",
-  "commissionPct",
   "monthlyLeadTarget",
 ];
 
@@ -99,7 +100,6 @@ export const FIELD_META = {
   trainingSalaryMonthly: { label: "Training salary", suffix: "₹ / mo" },
   trainingMonths: { label: "Training length", suffix: "months" },
   fixedPortionPct: { label: "Fixed portion", suffix: "%" },
-  commissionPct: { label: "Commission", suffix: "%" },
   monthlyLeadTarget: { label: "Monthly target", suffix: "closed leads" },
 };
 
@@ -169,7 +169,6 @@ export const DEFAULT_COMP = {
   bdm: {
     salaryMonthly: 40000, // total = Fixed 30,000 + Performance Pay 10,000
     fixedPortionPct: 75, // fixed part always paid; the rest is performance pay
-    commissionPct: 5, // % of every sale (whole team), if company target met
     monthlyLeadTarget: 20, // company: total closed leads / month
   },
   dsc: {
@@ -177,7 +176,6 @@ export const DEFAULT_COMP = {
     trainingSalaryMonthly: 15000, // during training (lower); configurable
     trainingMonths: 2, // training-cum-probation length
     fixedPortionPct: 75,
-    commissionPct: 3, // % of the DSC's own sales, if their target met
     monthlyLeadTarget: 5, // each DSC: closed leads / month
   },
   // ---- Per-person overrides ------------------------------------------------

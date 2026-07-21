@@ -15,7 +15,12 @@
 // ---------------------------------------------------------------------------
 
 import { monthsSince } from "@/lib/format";
-import { isDead } from "@/lib/analytics";
+
+// A deal is a reversal if it was cancelled / lost / refunded. Kept local (rather
+// than importing from analytics) so this module has no circular dependency.
+function isDeadStatus(status) {
+  return status === "Lost" || status === "Cancelled";
+}
 
 // The quarterly hold: a commission is only finalized (payable) once this many
 // months have passed since the win was approved, giving a buffer to reverse it
@@ -71,7 +76,7 @@ export function dealClosedValue(deal) {
 // True once a deal is a reversal (cancelled / lost / refunded) — its commission
 // is clawed back to 0 regardless of the hold.
 export function isReversedDeal(deal) {
-  return !!deal && (deal.cancelled === true || isDead(deal.leadStatus));
+  return !!deal && (deal.cancelled === true || isDeadStatus(deal.leadStatus));
 }
 
 // The lifecycle of a Deal's commission, given "now":

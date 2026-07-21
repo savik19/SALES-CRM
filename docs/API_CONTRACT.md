@@ -278,7 +278,6 @@ reflects immediately.
   "bdm": {
     "salaryMonthly": 40000, // Fixed part + performance pay
     "fixedPortionPct": 75, // fixed always paid; the rest is target-gated
-    "commissionPct": 5, // % of whole-team sales, if company target met
     "monthlyLeadTarget": 20, // company: closed leads / month
   },
   "dsc": {
@@ -286,12 +285,11 @@ reflects immediately.
     "trainingSalaryMonthly": 15000, // flat pay during training
     "trainingMonths": 2, // joinedMonthsAgo < this ⇒ in training
     "fixedPortionPct": 75,
-    "commissionPct": 3, // % of own sales, if own target met
     "monthlyLeadTarget": 5, // each DSC: closed leads / month
   },
   // Per-person overrides — only the keys present override that role default.
   "overrides": {
-    "u-anaya": { "commissionPct": 10 }, // e.g. a DSC on a custom package
+    "u-anaya": { "monthlyLeadTarget": 8 }, // e.g. a DSC on a custom target
   },
 }
 ```
@@ -300,6 +298,12 @@ Earnings rule (see `personEarnings`): the Fixed portion is always paid; the
 Performance Pay **and** commission are paid ONLY when the person meets their
 monthly target (`closed ≥ target`). A DSC within the training window gets the flat
 training salary instead. Deductions apply to gross to get net take-home.
+**Commission is not a flat %** — it's priced through the catalog (below): for the
+person's won deals in the month, `commissionForDeals(deals, config, role)` sums
+each deal's line-item commission and splits it into **finalized** (past the
+3-month hold → the payable part gated by the target) and **pending** (still in the
+hold, shown but not yet paid). The BDM earns the BDM-rate override on **every**
+team-won deal.
 
 - `GET /api/compensation` → the config above.
 - `PUT /api/compensation` — save the whole config (defaults + overrides). **200**.
