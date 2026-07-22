@@ -3,24 +3,51 @@
 > The contract between this frontend and the Laravel backend. Build these
 > endpoints and return the shapes below, and the UI works with **zero component
 > changes** — the frontend only ever calls the functions in
-> [`src/lib/leadsApi.js`](../src/lib/leadsApi.js).
+> [`src/lib/leadsApi.js`](../src/lib/leadsApi.js) and
+> [`src/lib/dealsApi.js`](../src/lib/dealsApi.js).
 
 **Base URL:** configured via `NEXT_PUBLIC_API_BASE_URL` (see [`.env.example`](../.env.example)).
 All responses are JSON. All dates are ISO `YYYY-MM-DD` strings.
 
 The canonical field definitions live in [`src/lib/types.js`](../src/lib/types.js)
-as JSDoc typedefs, and the option lists (with exact values + order) live in
-[`src/data/mockLeads.js`](../src/data/mockLeads.js). Keep them in sync with this doc.
+as JSDoc typedefs (`Lead`, `Deal`), and the option lists (with exact values +
+order) live in [`src/data/mockLeads.js`](../src/data/mockLeads.js). Keep them in
+sync with this doc.
+
+## Lead → Deal model (read this first)
+
+The domain has **two** records:
+
+- A **Lead** is a **prospect** — the company/contact you're working, its funnel
+  status, and a non-binding list of the offerings it's **interested in**
+  (`interestedOfferingIds`). No money lives on the lead.
+- A **Deal** is the **unit of sale**: **one deal = one offering** (a single
+  service or product). Money, stage, win-approval, commission and target all
+  live on the deal. Once a prospect confirms, the DSC creates one deal **per
+  offering** (`POST /api/deals`). A lead can hold **many** deals, now and in
+  future (a repeat customer just gets new deals under the same lead).
+
+So the Lead Table is a **prospect inbox**, the Pipeline is a **board of deals**,
+and Approvals approves **individual deals**. Analytics keep the lead **funnel**
+(prospecting activity) but take **won counts, values, target and commission from
+deals**.
 
 ---
 
 ## How the frontend consumes this
 
-| Frontend function (`src/lib/leadsApi.js`) | Endpoint               | Used by                        |
-| ----------------------------------------- | ---------------------- | ------------------------------ |
-| `getLeads()`                              | `GET /api/leads`       | Lead Table                     |
-| `getLeadById(leadId)`                     | `GET /api/leads/:id`   | Lead detail (deep-link/future) |
-| `updateLead(leadId, changes)`             | `PATCH /api/leads/:id` | Future edit/status changes     |
+| Frontend function                            | Endpoint                         | Used by                    |
+| -------------------------------------------- | -------------------------------- | -------------------------- |
+| `leadsApi.getLeads()`                        | `GET /api/leads`                 | Lead Table (prospects)     |
+| `leadsApi.getLeadById(leadId)`               | `GET /api/leads/:id`             | Lead detail                |
+| `leadsApi.updateLead(leadId, changes)`       | `PATCH /api/leads/:id`           | Edit / interest / status   |
+| `dealsApi.getDeals()`                        | `GET /api/deals`                 | Pipeline, Approvals        |
+| `dealsApi.getDealsByLead(leadId)`            | `GET /api/leads/:id/deals`       | Lead detail deals list     |
+| `dealsApi.createDeal(deal)`                  | `POST /api/deals`                | Create-deal (from a lead)  |
+| `dealsApi.updateDeal(dealId, changes)`       | `PATCH /api/deals/:id`           | Pipeline stage / fields    |
+| `dealsApi.requestDealWin(dealId, payload)`   | `POST /api/deals/:id/request-win`| Win request (DSC)          |
+| `dealsApi.approveDealWin(dealId, decision)`  | `POST /api/deals/:id/approve-win`| Approve win (Admin)        |
+| `dealsApi.rejectDealWin(dealId, decision)`   | `POST /api/deals/:id/reject-win` | Reject win (Admin)         |
 
 The frontend passes **no auth today**. When auth exists, add it in the `apiGet`
 helper / `fetch` calls (one spot) — e.g. a Sanctum cookie (`credentials: "include"`)
@@ -63,46 +90,84 @@ or an `Authorization` header.
   "closedDate": "2026-07-11", // ISO date a won lead was closed; "" otherwise
   "notes": "Wants a revised quote…", // long text
 
-  // ---- Company → Deal model (see below) ----
-  "companyId": "co-sri-vari-textiles", // groups all deals for one company
-  "lineItems": [{ "offeringId": "svc-custom-software", "amount": 440000 }],
-  "wonApprovedDate": "2026-07-11", // set by the Admin on approval; "" until then
-  "approvalStatus": "approved", // "" | "pending" | "approved" | "rejected"
+  // ---- Lead → Deal model ----
+  "companyId": "co-sri-vari-textiles", // groups a company's leads/deals
+  "interestedOfferingIds": ["svc-custom-software", "svc-website"], // non-binding
+  // interest — offering ids the prospect is interested in; the DSC creates one
+  // Deal per confirmed offering. See the Deal shape + endpoints below.
 }
 ```
 
-**Company → Deal.** Each record is really a **Deal**; `companyId` groups all
-deals for one **Company** (a company accumulates many deals over time — a new
-project, an upsell, a renewal). The detail view lists all deals for the company
-and a **“+ New deal”** action opens a fresh one (same `companyId`, company/contact
-copied, `leadStatus: "New"`) via `createDeal` → **`POST /api/deals`**. So a
-company can have many deals both now and in future. `lineItems` (what was sold)
-drive commission (see the catalog); the `approval*` / `wonApprovedDate` fields
-drive the win-approval flow (below).
+**Prospect record.** Under the Lead → Deal model the Lead is the **prospect**:
+its `interestedOfferingIds` is a non-binding shortlist the DSC toggles in the lead
+detail. When the prospect confirms, the DSC creates one **Deal** per offering
+(`POST /api/deals`). All money/stage/approval/commission live on the **Deal**
+(below), not the lead. `quotedAmount` / `closedAmount` remain on the lead only as
+legacy rollups; new work reads them off deals.
 
-> **Discount %** (schema column 22) is **computed, never stored**:
-> `(quotedAmount − closedAmount) / quotedAmount × 100`. The frontend derives it;
-> do not send it.
+> **Discount %** is **computed, never stored**:
+> `(quotedAmount − closedAmount) / quotedAmount × 100`. The frontend derives it
+> (on a deal from its own quoted/closed); do not send it.
 
-**Analytics dates.** The Lead Table analytics are month-filtered and computed
-client-side from the lead dates (`src/lib/analytics.js` → `monthMetrics`). Just
-return accurate dates on each lead and the metrics follow:
+### Deal (unit of sale — one offering)
+
+A **Deal** is one confirmed offering under a Lead. Canonical typedef:
+[`src/lib/types.js`](../src/lib/types.js) → `Deal`; seed derivation:
+[`src/data/mockDeals.js`](../src/data/mockDeals.js).
+
+```jsonc
+{
+  "dealId": "DEAL-8008-1", // string, primary key
+  "leadId": "SCRIPT8008", // FK → Lead.leadId (the parent prospect)
+  "companyId": "co-sri-vari-textiles", // denormalized company grouping
+  "offeringId": "svc-custom-software", // FK → catalog offering (prices the deal)
+  "ownerId": "u-anaya", // FK → TeamMember.id (the owning DSC)
+  "dealStatus": "Open", // enum — DEAL_STATUSES (single-select, pipeline order)
+  "quotedAmount": 210000, // number (Rupees) or null
+  "closedAmount": null, // number (Rupees) agreed, or null until won
+  "createdDate": "2026-07-08", // ISO date the deal was created
+  "approvalStatus": "", // "" | "pending" | "approved" | "rejected"
+  "approvalRequest": null, // snapshot sent for approval (see win flow)
+  "approvalReason": "", // rejection reason, if any
+  "wonApprovedDate": "", // ISO date the Admin approved the win; "" until then
+  "approvalDecidedBy": "", // Admin id who decided
+  "approvalDecidedDate": "", // ISO date of the decision
+  "paymentStatus": "Pending", // "Pending" | "Partial" | "Paid"
+  "receivedAmount": 0, // Rupees received so far
+  "notes": "" // free text
+}
+```
+
+Only deals with a `wonApprovedDate` in a won stage count as **won** for analytics
++ commission. One deal carries exactly **one** `offeringId`, so its commission is
+that offering's rule applied to `closedAmount` (no line items — see commission
+math below).
+
+**Analytics dates.** The analytics are month-filtered and computed client-side
+(`src/lib/analytics.js`). The **lead funnel** (prospecting) comes from lead dates
+(`monthMetrics`); the **money metrics** come from deals (`dealMetrics`,
+`mergedMetrics`). Return accurate dates on both records and the metrics follow:
+
+Lead funnel (from leads):
 
 - **Total leads** — all leads assigned to the person (all-time; not month-scoped).
 - **Uncontacted** — leads with no `lastContactDate` yet (never contacted).
   All-time, **not** month-scoped (e.g. "500 uncontacted of 1000 total").
 - **New assigned** — `assignedDate` in the selected month.
 - **Contacted** — `lastContactDate` in the month.
-- **Meeting scheduled** — leads currently at status `Meeting Scheduled` that were
-  worked in the month (`lastContactDate` **or** `assignedDate` in the month).
-- **Meeting done** — leads currently at status `Meeting Done` that were worked in
-  the month.
+- **Meeting scheduled / done** — leads currently at that status, worked
+  (`lastContactDate` **or** `assignedDate`) in the month.
 - **Follow-ups due** — `nextFollowUpDate` in the month.
-- **Closed (won)** — a won lead whose `closedDate` is in the month.
-- **Pipeline value** — Σ `quotedAmount` of open leads worked (assigned/contacted)
-  in the month.
 
-Earnings/target for the month use "closed (won) in the month" as the closed count.
+Money (from deals, keyed by `ownerId`):
+
+- **Deals won** — deals in a won stage whose `wonApprovedDate` is in the month.
+- **Won value** — Σ `closedAmount` of those won deals.
+- **Pipeline value** — Σ `quotedAmount` of currently-open deals (a snapshot; not
+  won/lost/cancelled).
+
+Earnings/target for the month use **deals won in the month** as the closed count
+(`monthlyDealTarget`), and commission is priced per deal (below).
 
 **Follow-up calendar filter.** The Lead Table has a date-range picker (a single
 day = From == To, or an open-ended From/To) that filters rows by
@@ -110,28 +175,24 @@ day = From == To, or an open-ended From/To) that filters rows by
 the analytics (those use the month selector). By default no range is set, so the
 table shows **all** leads with the newest-assigned (`assignedDate` desc) on top.
 
-**Pipeline period.** The Pipeline board is scoped to a **period** — a month
-(default = current month, previous months selectable) or a calendar range that
-overrides the month. A lead is "in the period" when **any** of its activity dates
-(`assignedDate`, `lastContactDate`, `nextFollowUpDate`, `closedDate`) falls in it
-(`leadInPeriod` in `src/lib/analytics.js`). This shows the leads actually worked
-in that window instead of every lead ever created. The board's overview stats
-(In pipeline, Open value = Σ `quotedAmount` of active leads, Won, Won value,
-Overdue) are computed over that period set. A status change on the board (drag or
-the card's select) is a normal lead edit and obeys the same permission model
-below — read-only leads (a DSC's lead seen by a manager, or anything while a
-manager is focused on a DSC) cannot be dragged or restaged.
+**Pipeline is a board of deals.** The Pipeline (`/pipeline`) is a Kanban of
+**deals**, one card per deal, grouped by `dealStatus` (in `DEAL_STATUSES` order).
+Each card shows the company (from the parent lead), the offering, the owner and
+the value. It is scoped to a **period** — a month (default = current, previous
+months selectable) or a calendar range — where a deal is "in the period" if its
+`createdDate` **or** `wonApprovedDate` falls in it. The board's overview stats are
+deal-native: In pipeline (count), Open value (Σ `quotedAmount` of open deals),
+Won (count), Won value (Σ `closedAmount`), and Pending (deals awaiting approval).
+Filters are **Status** (deal stages) and **Owner** (DSC, managers only).
 
-**Pipeline excludes "New".** The board is a Kanban of deals being **actively
-worked**, so it omits the `New` status — assigned-but-not-yet-worked leads that
-can number in the thousands. They stay in the Lead Table (paginated) and their
-count surfaces in the New-assigned / Uncontacted analytics; they never render as
-Kanban cards. The board, its counts, and its filters all derive from this
-"pipeline" set (every status **except** `New`). A **Status filter** lets any role
-(Admin / BDM / DSC) narrow the board to specific stages — only the selected
-status columns render, in funnel order; clearing it shows all pipeline stages.
-For a real backend this is a client-side view rule; the API can still return all
-statuses and the frontend decides what the board shows.
+**Winning is the money event.** Moving a deal from a non-won stage **into** a won
+stage does **not** set it directly — it opens a win request (`request-win`) so the
+Admin can approve; the deal shows **pending** and locks until decided. Approving
+sets `dealStatus: "Won"` + `wonApprovedDate`. Other stage moves patch the deal via
+`PATCH /api/deals/:id`. Every move obeys the same permission model below: a deal is
+draggable/restageable only by its owner (a DSC) or a manager on an unassigned/own
+deal; a deal owned by another DSC (or anything while a manager is focused on a DSC)
+is read-only.
 
 ### TeamMember / User
 
@@ -205,6 +266,12 @@ Project Started, Project Delivered, Closed, Lost, On Hold, Cancelled`
   - 1–10 = active pipeline · 11–14 = post-sale (Won onward counts as won) · Lost
     and On Hold = exits from the active pipeline · Cancelled = a _won_ deal that
     fell apart (reachable only from Won / Project Started / Project Delivered).
+- **Deal Status** (`DEAL_STATUSES`, single-select, pipeline order — the stages a
+  single-offering Deal moves through): `Open, Proposal Sent, Negotiation, Won,
+Project Started, Project Delivered, Closed, Lost, On Hold, Cancelled`
+  - `Open` = entry stage · `Won` onward (`WON_DEAL_STATUSES`) counts as won ·
+    Lost/Cancelled = reversals · On Hold = paused. `Won` is the approval-gated
+    money event.
 - **Priority** (4): `Low, Medium, High, Urgent`
 - **Lead Source** (7): `LinkedIn, Instagram, Referral, Website, Cold Email, Event, Other`
 - **Industry** (14): `Hospitality, Healthcare, Manufacturing, Real Estate,
@@ -252,31 +319,47 @@ Bulk-assign leads to one DSC. Body `{ "leadIds": string[], "dscId": string }`.
 Commit imported rows. Body `{ "rows": Lead[] }`. Each row must arrive as
 `leadStatus: "New"` and `assignedDscId: ""`. **200** → `{ "imported": number }`.
 
-### Win approval flow (Project Started needs Admin approval)
+### Deal endpoints
 
-A deal is credited as **won** only after the Admin approves a DSC's close
-request. The `leadStatus` does **not** move to `Project Started` on the DSC's
-action — it moves when the Admin approves. Three endpoints (mocked in
-`src/lib/leadsApi.js` as `requestWin` / `approveWin` / `rejectWin`):
+The Pipeline, Approvals and the lead-detail deals list read/write deals through
+`src/lib/dealsApi.js`. Enforce the same role/ownership model server-side.
 
-- `POST /api/leads/:id/request-win` (deal owner) — the DSC submits the close
-  request. Body `{ requestedBy, requestedDate, quotedAmount, closedAmount,
-lineItems:[{offeringId,amount}], note? }`. `closedAmount` = Σ line-item amounts
-  (derived); discount % = `(quoted − closed)/quoted`. Sets
-  `approvalStatus: "pending"` and stores `approvalRequest`. Enforce owner-only.
-- `POST /api/leads/:id/approve-win` (Admin) — applies the requested financials +
-  line items, sets `leadStatus: "Project Started"`, stamps `closedDate` and
-  `wonApprovedDate` (the win is now credited for target + commission), and
+- `GET /api/deals` → `Deal[]`. (Scope server-side per the logged-in user.)
+- `GET /api/leads/:id/deals` → the `Deal[]` for one lead.
+- `POST /api/deals` (deal owner) — create a deal for a lead. Body: a partial
+  `Deal` `{ leadId, companyId, offeringId, ownerId, dealStatus:"Open",
+quotedAmount, createdDate, notes? }`; the backend assigns `dealId` and defaults
+  the rest. Enforce that the parent lead is the caller's (or a manager's) prospect.
+  **201** → the created `Deal`.
+- `PATCH /api/deals/:id` — partial `Deal` (stage, value, owner…), e.g.
+  `{ "dealStatus": "Negotiation" }`. **200** → the updated `Deal`. Enforce the
+  edit-permission model (owner or manager on own/unassigned).
+
+### Deal win-approval flow (Won needs Admin approval)
+
+A deal is credited as **won** only after the Admin approves the owner's request.
+Moving a deal into a won stage on the board raises the request; `dealStatus` moves
+to `Won` when the Admin approves. Three endpoints (`requestDealWin` /
+`approveDealWin` / `rejectDealWin` in `dealsApi.js`):
+
+- `POST /api/deals/:id/request-win` (deal owner) — Body `{ requestedBy,
+requestedDate, quotedAmount, closedAmount, note? }`. One deal = one offering, so
+  there are **no line items** — `closedAmount` is the single agreed amount;
+  discount % = `(quoted − closed)/quoted`. Sets `approvalStatus: "pending"` and
+  stores `approvalRequest`. Enforce owner-only.
+- `POST /api/deals/:id/approve-win` (Admin) — Body `{ adminId, approvedDate }`.
+  Applies the requested `quotedAmount`/`closedAmount`, sets `dealStatus: "Won"`,
+  stamps `wonApprovedDate` (now credited for target + commission), and
   `approvalStatus: "approved"`.
-- `POST /api/leads/:id/reject-win` (Admin) — Body `{ reason }`. Sets
-  `approvalStatus: "rejected"` + `approvalReason`; the deal keeps its prior
-  status so the DSC can revise and resubmit.
+- `POST /api/deals/:id/reject-win` (Admin) — Body `{ adminId, reason, decidedDate }`.
+  Sets `approvalStatus: "rejected"` + `approvalReason`; the deal keeps its prior
+  stage so the owner can revise and resubmit.
 
-Approval fields on a Lead/Deal: `approvalStatus` (""/pending/approved/rejected),
+Approval fields on a Deal: `approvalStatus` (""/pending/approved/rejected),
 `approvalRequest` (the snapshot above), `approvalReason`, `approvalDecidedBy`,
-`approvalDecidedDate`, `wonApprovedDate`. Only `wonApprovedDate` deals count as
-won in the analytics + commission. The Admin reviews pending requests on the
-**Approvals** screen (`/approvals`).
+`approvalDecidedDate`, `wonApprovedDate`. Only deals with `wonApprovedDate` in a
+won stage count as won in the analytics + commission. The Admin reviews pending
+requests on the **Approvals** screen (`/approvals`).
 
 ---
 
@@ -319,29 +402,33 @@ reflects immediately.
   "bdm": {
     "salaryMonthly": 40000, // Fixed part + performance pay
     "fixedPortionPct": 75, // fixed always paid; the rest is target-gated
-    "monthlyLeadTarget": 20, // company: closed leads / month
+    "monthlyDealTarget": 20, // company: deals won / month
   },
   "dsc": {
     "baseSalaryMonthly": 25000, // post-training total
     "trainingSalaryMonthly": 15000, // flat pay during training
     "trainingMonths": 2, // joinedMonthsAgo < this ⇒ in training
     "fixedPortionPct": 75,
-    "monthlyLeadTarget": 5, // each DSC: closed leads / month
+    "monthlyDealTarget": 5, // each DSC: deals won / month
   },
   // Per-person overrides — only the keys present override that role default.
   "overrides": {
-    "u-anaya": { "monthlyLeadTarget": 8 }, // e.g. a DSC on a custom target
+    "u-anaya": { "monthlyDealTarget": 8 }, // e.g. a DSC on a custom target
   },
 }
 ```
 
+> The target field was renamed `monthlyLeadTarget` → **`monthlyDealTarget`** with
+> the Lead → Deal model (targets are now deals won, not leads). `compConfig.jsx`
+> migrates the old key on load, but new configs should send `monthlyDealTarget`.
+
 Earnings rule (see `personEarnings`): the Fixed portion is always paid; the
 Performance Pay **and** commission are paid ONLY when the person meets their
-monthly target (`closed ≥ target`). A DSC within the training window gets the flat
-training salary instead. Deductions apply to gross to get net take-home.
+monthly target (`dealsWon ≥ target`). A DSC within the training window gets the
+flat training salary instead. Deductions apply to gross to get net take-home.
 **Commission is not a flat %** — it's priced through the catalog (below): for the
-person's won deals in the month, `commissionForDeals(deals, config, role)` sums
-each deal's line-item commission and splits it into **finalized** (past the
+person's deals won in the month, `commissionForDeals(deals, config, role)` prices
+each deal's single offering and splits the total into **finalized** (past the
 3-month hold → the payable part gated by the target) and **pending** (still in the
 hold, shown but not yet paid). The BDM earns the BDM-rate override on **every**
 team-won deal.
@@ -390,21 +477,21 @@ per sale (typical for services); `type: "percent"` pays `value`% of the sold
 amount (typical for subscription products). Services default to fixed, products
 to percent, but either can use either.
 
-**Commission math** lives in `src/lib/commission.js` (pure, no React) and reads a
-won **Deal**'s line items — `deal.lineItems: [{ offeringId, amount }]`:
+**Commission math** lives in `src/lib/commission.js` (pure, no React). A Deal is
+**one offering** (`deal.offeringId` priced on `deal.closedAmount`):
 
-- `dealCommission(deal, config, role)` — Σ over line items of that role's rule.
-- `dealClosedValue(deal)` — Σ of line-item amounts (the contract value is
-  **derived** from the items, so the commission base can't be inflated).
+- `singleDealCommission(deal, config, role)` — that role's rule for the deal's
+  offering applied to its closed amount (falls back to quoted before it's won).
 - `commissionStatus(deal, now)` — `none` (not an approved win) · `reversed`
-  (cancelled/refunded → ₹0) · `pending` (approved, still inside the
-  `HOLD_MONTHS`-month quarterly hold) · `finalized` (hold elapsed → payable).
-- `commissionRollup(deals, config, role, now)` → `{ finalized, pending, total }`.
+  (cancelled/lost → ₹0) · `pending` (approved, still inside the `HOLD_MONTHS`-month
+  quarterly hold) · `finalized` (hold elapsed → payable). Reads `deal.dealStatus`.
+- `commissionForDeals(deals, config, role, now)` (in `analytics.js`) →
+  `{ finalized, pending, total }` over a person's won deals.
 
-The Deal shape (`lineItems`, `wonApprovedDate`, `cancelled`) is delivered by the
-Company → Deal model; the catalog + math above are the contract the backend
-mirrors. Fixed vs percent, the per-role rates, and the hold window are all data,
-so tuning them is an Admin edit, not a code change.
+Fixed vs percent, the per-role rates, and the hold window are all data, so tuning
+them is an Admin edit, not a code change. (The older `dealCommission` /
+`dealClosedValue` / `commissionRollup` line-item helpers remain for reference but
+the single-offering deal uses `singleDealCommission`.)
 
 ## Roles & scoping (Build Brief §4)
 
@@ -422,10 +509,10 @@ so tuning them is an Admin edit, not a code change.
   can edit their own leads' fields and status; **cannot** assign/reassign or import,
   and has no Focus switcher.
 
-The **same Focus switcher and permission model apply to the Pipeline** board: a
-manager can focus it on the team, their own leads, or one DSC (read-only); a DSC
-sees only their own board. Because a status change is a lead edit, only leads the
-viewer may edit are draggable / restageable.
+The **same Focus switcher and permission model apply to the Pipeline** board of
+deals: a manager can focus it on the team, their own deals, or one DSC
+(read-only); a DSC sees only their own deals. A deal is scoped by its `ownerId`
+and only deals the viewer may edit are draggable / restageable.
 
 `assignedDscId` holds exactly **one** id (single assignee — no multiple assignees)
 or `""` for unassigned, and is set only by a manager. The frontend has a demo role
@@ -447,6 +534,7 @@ CRM-only and filled in later. Duplicate detection matches on Phone OR Email OR
 
 | Screen (roadmap) | Suggested endpoints                                           |
 | ---------------- | ------------------------------------------------------------- |
+| Deals / Pipeline | `GET/POST /api/deals`, `PATCH /api/deals/:id`, win request/approve/reject |
 | User Management  | `GET/POST /api/users`, `PUT /api/users/:id`, status/invite    |
 | Compensation     | `GET/PUT /api/compensation` (defaults + per-person overrides) |
 | Auth             | `GET /api/me` → current user (drives role scoping)            |

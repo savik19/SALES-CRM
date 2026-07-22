@@ -18,13 +18,19 @@ screen — following the existing pattern keeps the codebase consistent.
 ## The one rule that keeps everything decoupled
 
 ```
-  UI components  ──►  src/lib/leadsApi.js  ──►  (mock data | Laravel API)
-   (never import mock data directly)         one swap point
+  UI components  ──►  src/lib/{leadsApi,dealsApi}.js  ──►  (mock data | Laravel API)
+   (never import mock data directly)                     one swap point
 ```
 
 Components receive data as props and call the **data layer** (`src/lib/*Api.js`).
 They never import from `src/data/`. This is why the backend can be wired in one
 place without touching the UI. See [API_CONTRACT.md](./API_CONTRACT.md).
+
+**Domain: Lead → Deal.** A **Lead** is a prospect; a **Deal** is the unit of sale
+(one deal = one offering). A lead holds many deals over time. Money, stage,
+win-approval, commission and target live on the **deal**; the lead carries the
+funnel status and a non-binding interest list. The Lead Table is the prospect
+inbox, the Pipeline is a board of deals, and Approvals approves individual deals.
 
 ## Folder map
 
@@ -46,15 +52,19 @@ src/
                            #     ImportModal, BulkAssignBar, RoleSwitcher,
                            #     LeadStatusBadge, ServiceChips, ExpandableCell,
                            #     statusStyles.js
+    pipeline/              # Pipeline (deals board): DealBoard, DealToolbar,
+                           #   DealDetailSidebar, DealWinRequestModal
   data/                    # ⚠️ MOCK DATA ONLY — throwaway, replaced by the API
-    mockLeads.js           #   SINGLE data file: option lists + team (BDM+DSCs)
-                           #   + ~30 leads
+    mockLeads.js           #   option lists + team (BDM+DSCs) + ~30 leads (prospects)
+    mockDeals.js           #   deals seeded from the leads (one per offering)
     app/settings/columns/  # Column Mapping admin screen (rename/alias/add/remove)
     app/settings/compensation/ # Admin: salaries, targets, commission, training
     components/analytics/  # AnalyticsPanel (role-aware KPIs, meters, earnings)
   lib/
     config.js              # env-driven config (API base URL, mock flag)
-    leadsApi.js            # ⭐ DATA ACCESS LAYER — swap mock → API here
+    leadsApi.js            # ⭐ DATA ACCESS LAYER (leads) — swap mock → API here
+    dealsApi.js            # ⭐ DATA ACCESS LAYER (deals) — swap mock → API here
+    commission.js          # pure per-deal commission math (catalog rules + hold)
     columnConfig.jsx       # editable column config (labels/aliases) + provider
     compConfig.jsx         # editable compensation/targets config + provider (Admin)
     analytics.js           # pure metrics + earnings computations
