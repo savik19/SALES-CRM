@@ -43,6 +43,34 @@
  */
 
 /**
+ * A Deal — ONE confirmed offering (a single service or product) under a Lead
+ * (Lead → Deal model). Money, status, approval, commission and target all live
+ * here. A lead can hold many deals, now and in future.
+ *
+ * @typedef {Object} Deal
+ * @property {string} dealId         Primary key, e.g. "DEAL-8008-1".
+ * @property {string} leadId         Parent Lead (FK → Lead.leadId).
+ * @property {string} companyId      Denormalized company grouping.
+ * @property {string} offeringId     The single catalog offering sold (FK). Its
+ *                                   compensation rule prices this deal.
+ * @property {string} ownerId        Owning DSC (FK → TeamMember.id).
+ * @property {string} dealStatus     One of DEAL_STATUSES (the pipeline stage).
+ * @property {number|null} quotedAmount  Rupees, or null.
+ * @property {number|null} closedAmount  Rupees agreed, or null.
+ * @property {string} createdDate    ISO "YYYY-MM-DD".
+ * @property {string} approvalStatus "" | "pending" | "approved" | "rejected".
+ * @property {Object|null} approvalRequest  Snapshot sent for approval.
+ * @property {string} approvalReason Rejection reason, if any.
+ * @property {string} wonApprovedDate ISO date the Admin approved the win; only
+ *                                    deals with this set count as won.
+ * @property {string} approvalDecidedBy   Admin id who decided.
+ * @property {string} approvalDecidedDate ISO date of the decision.
+ * @property {string} paymentStatus  "Pending" | "Partial" | "Paid".
+ * @property {number} receivedAmount Rupees received so far.
+ * @property {string} notes          Free-form text.
+ */
+
+/**
  * A DSC (sales consultant) referenced by a lead's `assignedDscId`.
  *
  * @typedef {Object} TeamMember
