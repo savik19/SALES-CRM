@@ -29,8 +29,8 @@ import { createContext, useContext, useEffect, useState } from "react";
 //   - Commission is paid ONLY when the full (100%) monthly target is met.
 //
 // The offer letters express the monthly target as revenue; per Prakhar's brief
-// we model it as a monthly count of CLOSED (won) leads — the number is editable
-// here either way.
+// we model it as a monthly count of DEALS WON (Lead → Deal model — one deal =
+// one offering) — the number is editable here either way.
 //
 // TODO(backend): persist via an API (GET/PUT /api/compensation) so the whole
 // company shares one policy. For now it lives in localStorage.
@@ -44,14 +44,14 @@ import { createContext, useContext, useEffect, useState } from "react";
 export const BDM_FIELDS = [
   "salaryMonthly",
   "fixedPortionPct",
-  "monthlyLeadTarget",
+  "monthlyDealTarget",
 ];
 export const DSC_FIELDS = [
   "baseSalaryMonthly",
   "trainingSalaryMonthly",
   "trainingMonths",
   "fixedPortionPct",
-  "monthlyLeadTarget",
+  "monthlyDealTarget",
 ];
 
 export function fieldsForRole(role) {
@@ -100,7 +100,7 @@ export const FIELD_META = {
   trainingSalaryMonthly: { label: "Training salary", suffix: "₹ / mo" },
   trainingMonths: { label: "Training length", suffix: "months" },
   fixedPortionPct: { label: "Fixed portion", suffix: "%" },
-  monthlyLeadTarget: { label: "Monthly target", suffix: "closed leads" },
+  monthlyDealTarget: { label: "Monthly target", suffix: "deals won" },
 };
 
 export const DEFAULT_COMP = {
@@ -169,14 +169,14 @@ export const DEFAULT_COMP = {
   bdm: {
     salaryMonthly: 40000, // total = Fixed 30,000 + Performance Pay 10,000
     fixedPortionPct: 75, // fixed part always paid; the rest is performance pay
-    monthlyLeadTarget: 20, // company: total closed leads / month
+    monthlyDealTarget: 20, // company: total deals won / month
   },
   dsc: {
     baseSalaryMonthly: 25000, // post-training total (Fixed 75% + Perf 25%)
     trainingSalaryMonthly: 15000, // during training (lower); configurable
     trainingMonths: 2, // training-cum-probation length
     fixedPortionPct: 75,
-    monthlyLeadTarget: 5, // each DSC: closed leads / month
+    monthlyDealTarget: 5, // each DSC: deals won / month
   },
   // ---- Per-person overrides ------------------------------------------------
   // { [userId]: Partial<rolePackage> } — only the keys present override the
@@ -191,20 +191,36 @@ function clone(obj) {
   return JSON.parse(JSON.stringify(obj));
 }
 
+// Rename the legacy target field (monthlyLeadTarget → monthlyDealTarget) on a
+// role/override package saved before the Lead → Deal model. Keeps existing
+// localStorage configs working after the switch to deal-based targets.
+function migrateTarget(pkg) {
+  if (!pkg || typeof pkg !== "object") return pkg;
+  if (pkg.monthlyLeadTarget != null && pkg.monthlyDealTarget == null) {
+    const { monthlyLeadTarget, ...rest } = pkg;
+    return { ...rest, monthlyDealTarget: monthlyLeadTarget };
+  }
+  return pkg;
+}
+
 // Merge a persisted config over the defaults so a config saved before a new
 // field/section existed still gets it (forward-compatible migration).
 function withDefaults(saved) {
   const base = clone(DEFAULT_COMP);
   if (!saved || typeof saved !== "object") return base;
+  const overrides = {};
+  for (const [id, pkg] of Object.entries(saved.overrides || {})) {
+    overrides[id] = migrateTarget(pkg);
+  }
   return {
     ...base,
     ...saved,
-    bdm: { ...base.bdm, ...(saved.bdm || {}) },
-    dsc: { ...base.dsc, ...(saved.dsc || {}) },
+    bdm: { ...base.bdm, ...migrateTarget(saved.bdm) },
+    dsc: { ...base.dsc, ...migrateTarget(saved.dsc) },
     // Catalog arrays: use the saved list if present, else seed from defaults.
     services: Array.isArray(saved.services) ? saved.services : base.services,
     products: Array.isArray(saved.products) ? saved.products : base.products,
-    overrides: saved.overrides || {},
+    overrides,
   };
 }
 

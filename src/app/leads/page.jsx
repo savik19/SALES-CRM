@@ -23,13 +23,10 @@ import {
 } from "@/components/leads/columns";
 import { useColumnConfig } from "@/lib/columnConfig";
 import { useActiveDscs, useUsers } from "@/lib/usersConfig";
-import {
-  getLeads,
-  updateLead,
-  assignLeads,
-  requestWin,
-  createDeal,
-} from "@/lib/leadsApi";
+import { getLeads, updateLead, assignLeads, requestWin } from "@/lib/leadsApi";
+import { getDeals, createDeal } from "@/lib/dealsApi";
+import { findOffering } from "@/lib/commission";
+import CreateDealModal from "@/components/leads/CreateDealModal";
 import {
   discountPct,
   recentMonths,
@@ -179,11 +176,14 @@ export default function LeadsPage() {
   const [allLeads, setAllLeads] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  const [deals, setDeals] = useState([]); // all deals (Lead → Deal model)
+
   useEffect(() => {
     let active = true;
-    getLeads().then((rows) => {
+    Promise.all([getLeads(), getDeals()]).then(([rows, dealRows]) => {
       if (active) {
         setAllLeads(rows);
+        setDeals(dealRows);
         setLoading(false);
       }
     });
@@ -191,6 +191,10 @@ export default function LeadsPage() {
       active = false;
     };
   }, []);
+
+  function reloadDeals() {
+    getDeals().then(setDeals);
+  }
 
   // ---- Controls ------------------------------------------------------------
   const [search, setSearch] = useState("");
@@ -206,6 +210,7 @@ export default function LeadsPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [detailLead, setDetailLead] = useState(null);
   const [winRequestLead, setWinRequestLead] = useState(null);
+  const [createDealLead, setCreateDealLead] = useState(null);
   // Pagination — keeps the table a bounded height so it stays usable under the
   // analytics panel.
   const [page, setPage] = useState(1);
@@ -291,7 +296,14 @@ export default function LeadsPage() {
         variant: "team",
         name: viewer.name,
         self: false,
-        data: teamAnalytics(allLeads, dscs, config, viewer, analyticsMonth),
+        data: teamAnalytics(
+          allLeads,
+          deals,
+          dscs,
+          config,
+          viewer,
+          analyticsMonth
+        ),
       };
     }
     if (focusIsDsc) {
@@ -302,13 +314,14 @@ export default function LeadsPage() {
         data: personAnalytics(
           focusDsc,
           allLeads,
+          deals,
           config,
           analyticsMonth,
           "dsc"
         ),
       };
     }
-    // "self" — the viewer's own leads (DSC, or a BDM viewing "My leads").
+    // "self" — the viewer's own leads/deals (DSC, or a BDM viewing "My leads").
     return {
       variant: "dsc",
       name: viewer.name,
@@ -316,6 +329,7 @@ export default function LeadsPage() {
       data: personAnalytics(
         viewer,
         allLeads,
+        deals,
         config,
         analyticsMonth,
         viewer.role === "bdm" ? "bdm" : "dsc"
@@ -327,6 +341,7 @@ export default function LeadsPage() {
     focusIsDsc,
     focusDsc,
     allLeads,
+    deals,
     dscs,
     config,
     analyticsMonth,
@@ -500,54 +515,58 @@ export default function LeadsPage() {
     );
   }
 
-  // A manager (not viewing a DSC read-only) or a DSC may open a NEW deal for an
-  // existing company — the future upsell / renewal / new-project flow.
-  const canCreateDeal = !focusIsDsc && (isManager || viewer?.role === "dsc");
+  // ---- Lead → Deal: interest + deals --------------------------------------
+  // Active catalog offerings the lead can be interested in / that a deal can be.
+  const catalogOfferings = useMemo(
+    () =>
+      [...(config.services || []), ...(config.products || [])]
+        .filter((o) => o.active)
+        .map((o) => ({ id: o.id, name: o.name, kind: o.kind })),
+    [config]
+  );
 
-  // Build a fresh deal for the same company: copy the company/contact fields,
-  // reset it to a New, un-worked deal. A DSC owns it; a manager keeps it on the
-  // company's current DSC (they can reassign).
-  function handleNewDeal(fromLead) {
-    const owner =
-      viewer?.role === "dsc" ? viewer.id : fromLead.assignedDscId || "";
-    const deal = {
-      companyId: fromLead.companyId,
-      company: fromLead.company,
-      industry: fromLead.industry,
-      contactPerson: fromLead.contactPerson,
-      roleTitle: fromLead.roleTitle,
-      phone: fromLead.phone,
-      email: fromLead.email,
-      city: fromLead.city,
-      country: fromLead.country,
-      website: fromLead.website,
-      linkedinUrl: fromLead.linkedinUrl,
-      leadSource: fromLead.leadSource,
-      leadStatus: "New",
-      priority: "Medium",
-      lastContactDate: "",
-      nextFollowUpDate: "",
-      notes: `New deal for ${fromLead.company}.`,
-      assignedDscId: owner,
-      attemptCount: 0,
-      servicesPitched: [],
-      servicesInterested: [],
-      servicesOnboarded: [],
-      quotedAmount: null,
-      closedAmount: null,
-      lostReason: "",
-      assignedDate: monthKeyOf() + "-15",
-      closedDate: "",
-      wonApprovedDate: "",
-      lineItems: [],
-      approvalStatus: "",
-    };
-    createDeal(deal)
-      .then((created) => {
-        setAllLeads((rows) => [created, ...rows]);
-        setDetailLead(created);
-      })
+  // The open lead's deals, enriched with the offering name for display.
+  const detailDeals = useMemo(() => {
+    if (!detailLead) return [];
+    return deals
+      .filter((d) => d.leadId === detailLead.leadId)
+      .map((d) => ({
+        ...d,
+        offeringName: findOffering(config, d.offeringId)?.name || "Offering",
+      }));
+  }, [deals, detailLead, config]);
+
+  // Managing interest / creating deals needs edit rights on the lead.
+  const canManageDeals = detailLead ? canEditLead(detailLead) : false;
+
+  // Toggle an offering in the lead's interest list (non-binding).
+  function toggleInterest(offeringId) {
+    if (!detailLead || !canEditLead(detailLead)) return;
+    const current = detailLead.interestedOfferingIds || [];
+    const next = current.includes(offeringId)
+      ? current.filter((id) => id !== offeringId)
+      : [...current, offeringId];
+    handleFieldChange(detailLead.leadId, { interestedOfferingIds: next });
+  }
+
+  // Create one deal (one offering) under the lead from the modal.
+  function submitCreateDeal({ offeringId, quotedAmount, note }) {
+    const lead = createDealLead;
+    if (!lead) return;
+    const owner = viewer?.role === "dsc" ? viewer.id : lead.assignedDscId || "";
+    createDeal({
+      leadId: lead.leadId,
+      companyId: lead.companyId,
+      offeringId,
+      ownerId: owner,
+      dealStatus: "Open",
+      quotedAmount,
+      createdDate: monthKeyOf() + "-15",
+      notes: note || "",
+    })
+      .then(() => reloadDeals())
       .catch((e) => console.error(e));
+    setCreateDealLead(null);
   }
 
   function handleBulkAssign(dscId) {
@@ -755,20 +774,21 @@ export default function LeadsPage() {
         onClose={() => setDetailLead(null)}
         canRequestWin={detailLead ? canRequestWin(detailLead) : false}
         onRequestWin={(lead) => setWinRequestLead(lead)}
-        siblingDeals={
-          detailLead
-            ? allLeads.filter(
-                (l) =>
-                  l.companyId === detailLead.companyId &&
-                  l.leadId !== detailLead.leadId
-              )
-            : []
-        }
-        onOpenDeal={(leadId) =>
-          setDetailLead(allLeads.find((l) => l.leadId === leadId) || null)
-        }
-        canCreateDeal={canCreateDeal}
-        onNewDeal={handleNewDeal}
+        deals={detailDeals}
+        catalogOfferings={catalogOfferings}
+        interestIds={detailLead?.interestedOfferingIds || []}
+        canManageDeals={canManageDeals}
+        onToggleInterest={toggleInterest}
+        onCreateDeal={(lead) => setCreateDealLead(lead)}
+      />
+
+      <CreateDealModal
+        open={!!createDealLead}
+        lead={createDealLead}
+        offerings={catalogOfferings}
+        interestIds={createDealLead?.interestedOfferingIds || []}
+        onSubmit={submitCreateDeal}
+        onClose={() => setCreateDealLead(null)}
       />
 
       <WinRequestModal

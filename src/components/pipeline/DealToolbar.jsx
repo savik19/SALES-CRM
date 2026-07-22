@@ -28,31 +28,27 @@ function Stat({ label, value, tone = "slate", title }) {
   );
 }
 
+// Filters shown on the deal board. Status is the deal stage; Owner is the DSC who
+// owns the deal (only shown to a manager viewing the whole team).
 const FILTER_DEFS = [
-  { key: "leadStatus", label: "Status" },
-  { key: "priority", label: "Priority" },
-  { key: "industry", label: "Industry" },
-  { key: "city", label: "City" },
-  { key: "leadSource", label: "Source" },
-  { key: "assignedDscId", label: "DSC" },
+  { key: "dealStatus", label: "Status" },
+  { key: "ownerId", label: "Owner" },
 ];
 
 function chipLabel(key, value) {
-  return key === "assignedDscId" ? dscName(value) : value;
+  return key === "ownerId" ? dscName(value) : value;
 }
 
-// Label for the custom-range chip: a single day, an open-ended range, or a
-// closed range.
 function rangeChipLabel(from, to) {
   if (from && to) return from === to ? from : `${from} – ${to}`;
   if (from) return `from ${from}`;
   return `until ${to}`;
 }
 
-// Pipeline toolbar: a period control (month, or a calendar range) + an overview
-// strip of period stats, then a filter bar (search + multi-selects) + chips.
-// Fully controlled by the page.
-export default function PipelineToolbar({
+// Deal-board toolbar (Lead → Deal model): a period control (month or a calendar
+// range) + an overview strip of deal stats, then a filter bar (search + Status +
+// Owner) with active chips. Fully controlled by the page.
+export default function DealToolbar({
   count,
   stats,
   search,
@@ -67,14 +63,13 @@ export default function PipelineToolbar({
   filters,
   onFilterChange,
   options,
-  showDscFilter,
+  showOwnerFilter,
   onClearAll,
 }) {
-  const filterDefs = showDscFilter
+  const filterDefs = showOwnerFilter
     ? FILTER_DEFS
-    : FILTER_DEFS.filter((d) => d.key !== "assignedDscId");
+    : FILTER_DEFS.filter((d) => d.key !== "ownerId");
 
-  // A custom calendar range overrides the month selector.
   const customPeriod = Boolean(dateFrom || dateTo);
 
   const activeChips = [];
@@ -103,7 +98,6 @@ export default function PipelineToolbar({
       );
   }
 
-  // Keep the custom range coherent (from ≤ to).
   function setFrom(v) {
     onDateFrom(v);
     if (v && dateTo && v > dateTo) onDateTo("");
@@ -131,7 +125,7 @@ export default function PipelineToolbar({
             disabled={customPeriod}
             onChange={(e) => onMonth(e.target.value)}
             className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand disabled:bg-slate-100 disabled:text-slate-400"
-            title="Show leads worked in this month"
+            title="Show deals created or won in this month"
           >
             {months.map((ym) => (
               <option key={ym} value={ym}>
@@ -192,31 +186,31 @@ export default function PipelineToolbar({
         <Stat
           label="In pipeline"
           value={stats.total}
-          title="Leads in the funnel (Contacted onward) worked in the selected period. New, unworked leads live in the Lead Table."
+          title="Deals worked in the selected period (created or won)."
         />
         <Stat
           label="Open value"
           value={formatINR(stats.openValue)}
           tone="brand"
-          title="Total quoted value of open (active) leads in the period."
+          title="Total quoted value of open (not yet won/lost) deals in the period."
         />
         <Stat
           label="Won"
           value={stats.won}
           tone="green"
-          title="Leads won/closed in the period."
+          title="Deals won in the period."
         />
         <Stat
           label="Won value"
           value={formatINR(stats.wonValue)}
           tone="green"
-          title="Total closed amount of leads won in the period."
+          title="Total closed amount of deals won in the period."
         />
         <Stat
-          label="Overdue"
-          value={stats.overdue}
-          tone="red"
-          title="Open leads whose next follow-up date is today or in the past."
+          label="Pending"
+          value={stats.pending}
+          tone="amber"
+          title="Deals with a win request awaiting Admin approval."
         />
       </div>
 
@@ -230,7 +224,7 @@ export default function PipelineToolbar({
             type="text"
             value={search}
             onChange={(e) => onSearch(e.target.value)}
-            placeholder="Search company, contact, city…"
+            placeholder="Search company, offering…"
             className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-slate-700 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
           />
         </div>

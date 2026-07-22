@@ -22,6 +22,13 @@ function isDeadStatus(status) {
   return status === "Lost" || status === "Cancelled";
 }
 
+// The status a Deal carries. Under the Lead → Deal model a deal uses `dealStatus`;
+// the older Company → Deal rows used `leadStatus`. Read either so the commission
+// engine works across both shapes during the migration.
+function statusOf(deal) {
+  return deal?.dealStatus ?? deal?.leadStatus;
+}
+
 // The quarterly hold: a commission is only finalized (payable) once this many
 // months have passed since the win was approved, giving a buffer to reverse it
 // if the deal cancels/refunds. Config-worthy later; a constant for now.
@@ -63,6 +70,18 @@ export function dealCommission(deal, config, role) {
   );
 }
 
+// Commission a role earns on a single-offering Deal (Lead → Deal model): one
+// offering priced on the deal's closed amount (falls back to quoted when the
+// deal isn't closed yet). This is the per-deal commission used everywhere the
+// unit of sale is one deal = one offering.
+export function singleDealCommission(deal, config, role) {
+  const offering = findOffering(config, deal?.offeringId);
+  if (!offering) return 0;
+  const rule = role === "bdm" ? offering.bdm : offering.dsc;
+  const amount = deal?.closedAmount ?? deal?.quotedAmount ?? 0;
+  return ruleAmount(rule, amount);
+}
+
 // The Closed (contract) value of a Deal = Σ of its line-item amounts. Deriving
 // it from the line items (rather than a free-typed field) is what keeps the
 // commission base honest — it can never diverge from what was actually sold.
@@ -76,7 +95,7 @@ export function dealClosedValue(deal) {
 // True once a deal is a reversal (cancelled / lost / refunded) — its commission
 // is clawed back to 0 regardless of the hold.
 export function isReversedDeal(deal) {
-  return !!deal && (deal.cancelled === true || isDeadStatus(deal.leadStatus));
+  return !!deal && (deal.cancelled === true || isDeadStatus(statusOf(deal)));
 }
 
 // The lifecycle of a Deal's commission, given "now":

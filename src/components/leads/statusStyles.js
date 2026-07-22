@@ -9,6 +9,8 @@
 // green for the won/post-sale group, red for Lost, amber for On Hold, and a
 // dark pill for Cancelled (a won deal that fell apart — distinct from Lost).
 export const STATUS_BADGE = {
+  // "Open" is the entry stage for a Deal (Lead → Deal model).
+  Open: "bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200",
   New: "bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200",
   Attempted: "bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200",
   Contacted: "bg-sky-50 text-sky-700 ring-1 ring-inset ring-sky-200",

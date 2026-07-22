@@ -80,7 +80,7 @@ export default function PersonCompTable({ users, draft, onEdit, onReset }) {
                     {money(salary)}
                   </td>
                   <td className="px-4 py-2.5 tabular-nums text-slate-600">
-                    {comp.monthlyLeadTarget}
+                    {comp.monthlyDealTarget}
                   </td>
                   <td className="px-4 py-2.5">
                     {overridden ? (

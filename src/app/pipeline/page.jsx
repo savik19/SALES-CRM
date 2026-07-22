@@ -3,65 +3,43 @@
 import { useEffect, useMemo, useState } from "react";
 import Topbar from "@/components/layout/Topbar";
 import RoleSwitcher from "@/components/leads/RoleSwitcher";
-import PipelineBoard from "@/components/pipeline/PipelineBoard";
-import PipelineToolbar from "@/components/pipeline/PipelineToolbar";
-import LeadDetailSidebar from "@/components/leads/LeadDetailSidebar";
-import WinRequestModal from "@/components/leads/WinRequestModal";
-import { getLeads, updateLead, requestWin, createDeal } from "@/lib/leadsApi";
-import {
-  USER_BY_ID,
-  LEAD_STATUSES,
-  PRIORITIES,
-  INDUSTRIES,
-  LEAD_SOURCES,
-} from "@/data/mockLeads";
-import { useColumnConfig } from "@/lib/columnConfig";
+import DealBoard from "@/components/pipeline/DealBoard";
+import DealToolbar from "@/components/pipeline/DealToolbar";
+import DealDetailSidebar from "@/components/pipeline/DealDetailSidebar";
+import DealWinRequestModal from "@/components/pipeline/DealWinRequestModal";
+import { getDeals, updateDeal, requestDealWin } from "@/lib/dealsApi";
+import { getLeads } from "@/lib/leadsApi";
+import { useCompConfig } from "@/lib/compConfig";
+import { findOffering } from "@/lib/commission";
+import { USER_BY_ID, DEAL_STATUSES, WON_DEAL_STATUSES } from "@/data/mockLeads";
 import { useActiveDscs, useUsers } from "@/lib/usersConfig";
-import { groupsOf } from "@/components/leads/columns";
-import { isWon, isActive, leadInPeriod } from "@/lib/analytics";
-import {
-  monthRange,
-  recentMonths,
-  monthKeyOf,
-  isOnOrBefore,
-} from "@/lib/format";
+import { monthRange, recentMonths, monthKeyOf, isoInRange } from "@/lib/format";
 
-// The Pipeline is a Kanban of deals being actively worked, so it deliberately
-// omits the high-volume top-of-funnel bucket: a lead at "New" (assigned but not
-// yet worked) can number in the thousands and belongs in the Lead Table — with
-// its count surfaced by the New/Uncontacted analytics — not as a wall of cards
-// here. Every other stage is shown and is filterable via the Status filter.
-const EXCLUDED_PIPELINE_STATUSES = new Set(["New"]);
-const PIPELINE_STATUSES = LEAD_STATUSES.filter(
-  (s) => !EXCLUDED_PIPELINE_STATUSES.has(s)
-);
+// Deals that are still being actively worked (not yet a terminal money outcome).
+const DEAD_DEAL_STATUSES = new Set(["Lost", "Cancelled"]);
 
-const EMPTY_FILTERS = {
-  leadStatus: [],
-  priority: [],
-  industry: [],
-  city: [],
-  leadSource: [],
-  assignedDscId: [],
-};
-const SEARCH_KEYS = [
-  "company",
-  "contactPerson",
-  "email",
-  "phone",
-  "leadId",
-  "city",
-];
+const EMPTY_FILTERS = { dealStatus: [], ownerId: [] };
+const SEARCH_KEYS = ["company", "offeringName"];
 
-// Pipeline / Kanban board (Build Brief §3 step 2). Drag a lead card between
-// status columns — or use the card's status select — to change its status.
-// Mirrors the Lead Table's role model: a DSC sees only their own leads; a manager
-// can focus the whole board on the team, their own leads, or one DSC (read-only).
-// The board is scoped to a period (default = current month) via a month selector
-// or a calendar range, so it shows the leads worked in that window, not all leads.
+// A deal is "in" the period if it was created or won within it.
+function dealInPeriod(deal, from, to) {
+  if (!from && !to) return true;
+  return (
+    isoInRange(deal.createdDate, from, to) ||
+    isoInRange(deal.wonApprovedDate, from, to)
+  );
+}
+
+// Pipeline / Kanban board of DEALS (Lead → Deal model). Each card is one offering
+// under a company; drag a card between stages — or use the card's status select —
+// to move the deal. Moving a deal INTO a won stage doesn't close it directly: it
+// raises an Admin approval request (Won is the money event that credits target +
+// commission). Mirrors the Lead Table's role model: a DSC sees only their own
+// deals; a manager can focus the board on the team, their own, or one DSC.
 export default function PipelinePage() {
   const dscs = useActiveDscs();
   const { users } = useUsers();
+  const { config } = useCompConfig();
 
   // ---- Role (demo switcher; real auth replaces this) -----------------------
   const [viewerId, setViewerId] = useState("u-prakhar");
@@ -82,15 +60,12 @@ export default function PipelinePage() {
       : null;
   const focusIsDsc = !!focusDsc;
 
-  // If the focused DSC is deactivated (drops out of the active list), fall back
-  // to the team view instead of silently showing the manager's own leads.
   useEffect(() => {
     if (isManager && focus !== "team" && focus !== "self" && !focusDsc) {
       setFocus("team");
     }
   }, [isManager, focus, focusDsc]);
 
-  // Keep the demo viewer valid if the Admin deactivates the current one.
   useEffect(() => {
     const active = users.filter((u) => u.status !== "deactivated");
     if (active.length && !active.some((u) => u.id === viewerId)) {
@@ -98,34 +73,51 @@ export default function PipelinePage() {
     }
   }, [users, viewerId]);
 
-  const { columns } = useColumnConfig();
-  const groups = useMemo(() => groupsOf(columns), [columns]);
-
-  const [allLeads, setAllLeads] = useState([]);
+  // ---- Data (deals + a lead lookup for company / navigation) ---------------
+  const [rawDeals, setRawDeals] = useState([]);
+  const [leadsById, setLeadsById] = useState({});
   const [loading, setLoading] = useState(true);
-  const [detailLead, setDetailLead] = useState(null);
-  const [winRequestLead, setWinRequestLead] = useState(null);
+  const [detailDeal, setDetailDeal] = useState(null);
+  const [winDeal, setWinDeal] = useState(null); // deal awaiting the win-request modal
 
   useEffect(() => {
     let active = true;
-    getLeads().then((rows) => {
-      if (active) {
-        setAllLeads(rows);
-        setLoading(false);
-      }
+    Promise.all([getDeals(), getLeads()]).then(([deals, leads]) => {
+      if (!active) return;
+      const map = {};
+      for (const l of leads) map[l.leadId] = l;
+      setLeadsById(map);
+      setRawDeals(deals);
+      setLoading(false);
     });
     return () => {
       active = false;
     };
   }, []);
 
-  // ---- Scoping by focus ----------------------------------------------------
+  function reloadDeals() {
+    getDeals().then(setRawDeals);
+  }
+
+  // Enrich each deal with its company name (from the parent lead) and offering
+  // name (from the catalog) — everything the board, filters and detail need.
+  const allDeals = useMemo(
+    () =>
+      rawDeals.map((d) => ({
+        ...d,
+        company: leadsById[d.leadId]?.company || "—",
+        offeringName: findOffering(config, d.offeringId)?.name || "Offering",
+      })),
+    [rawDeals, leadsById, config]
+  );
+
+  // ---- Scoping by focus (owner) --------------------------------------------
   const scopeUserId =
     effFocus === "team" ? null : focusIsDsc ? effFocus : viewerId;
   const roleScoped = useMemo(() => {
-    if (effFocus === "team") return allLeads;
-    return allLeads.filter((l) => l.assignedDscId === scopeUserId);
-  }, [allLeads, effFocus, scopeUserId]);
+    if (effFocus === "team") return allDeals;
+    return allDeals.filter((d) => d.ownerId === scopeUserId);
+  }, [allDeals, effFocus, scopeUserId]);
 
   // ---- Period (month selector, or a calendar range that overrides it) -------
   const monthOptions = useMemo(() => recentMonths(6), []);
@@ -140,33 +132,19 @@ export default function PipelinePage() {
     [dateFrom, dateTo, periodMonth]
   );
 
-  // Leads within the period (before search / multi-select) — the period "book".
   const periodScoped = useMemo(
-    () => roleScoped.filter((l) => leadInPeriod(l, period.from, period.to)),
+    () => roleScoped.filter((d) => dealInPeriod(d, period.from, period.to)),
     [roleScoped, period]
-  );
-
-  // The board's working set: period leads that have entered the funnel (i.e. not
-  // "New"). Everything below — stats, filters, cards — is derived from this, so
-  // the excluded top-of-funnel volume never lands on the board or its counts.
-  const pipelineScoped = useMemo(
-    () =>
-      periodScoped.filter((l) => !EXCLUDED_PIPELINE_STATUSES.has(l.leadStatus)),
-    [periodScoped]
   );
 
   // ---- Filters -------------------------------------------------------------
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState(EMPTY_FILTERS);
 
-  // The DSC filter only shows in team focus. Drop any DSC selection when it's
-  // hidden, so it can't silently narrow the board to nothing with no visible
-  // control (or chip) to clear it.
+  // The Owner filter only shows in team focus. Drop any selection when hidden.
   useEffect(() => {
     if (effFocus !== "team") {
-      setFilters((f) =>
-        f.assignedDscId.length ? { ...f, assignedDscId: [] } : f
-      );
+      setFilters((f) => (f.ownerId.length ? { ...f, ownerId: [] } : f));
     }
   }, [effFocus]);
 
@@ -179,8 +157,6 @@ export default function PipelinePage() {
     setDateFrom("");
     setDateTo("");
   }
-
-  // Reset filters/period when switching role/viewer (keep the month at current).
   useEffect(() => {
     setSearch("");
     setFilters(EMPTY_FILTERS);
@@ -189,22 +165,11 @@ export default function PipelinePage() {
     setPeriodMonth(monthKeyOf());
   }, [viewerId]);
 
-  const showDscFilter = isManager && effFocus === "team";
+  const showOwnerFilter = isManager && effFocus === "team";
 
-  const cityOptions = useMemo(
-    () =>
-      Array.from(
-        new Set(pipelineScoped.map((l) => l.city).filter(Boolean))
-      ).sort(),
-    [pipelineScoped]
-  );
   const filterOptions = {
-    leadStatus: PIPELINE_STATUSES,
-    priority: PRIORITIES,
-    industry: INDUSTRIES,
-    city: cityOptions,
-    leadSource: LEAD_SOURCES,
-    assignedDscId: [
+    dealStatus: DEAL_STATUSES,
+    ownerId: [
       { value: "", label: "Unassigned" },
       ...dscs.map((d) => ({ value: d.id, label: d.name })),
     ],
@@ -212,159 +177,119 @@ export default function PipelinePage() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return pipelineScoped.filter((lead) => {
-      for (const key of Object.keys(EMPTY_FILTERS)) {
-        const sel = filters[key];
-        if (sel.length > 0 && !sel.includes(lead[key])) return false;
-      }
+    return periodScoped.filter((deal) => {
+      if (
+        filters.dealStatus.length &&
+        !filters.dealStatus.includes(deal.dealStatus)
+      )
+        return false;
+      if (filters.ownerId.length && !filters.ownerId.includes(deal.ownerId))
+        return false;
       if (q) {
-        const hay = SEARCH_KEYS.map((k) => lead[k])
+        const hay = SEARCH_KEYS.map((k) => deal[k])
           .join(" ")
           .toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [pipelineScoped, search, filters]);
+  }, [periodScoped, search, filters]);
 
-  // Which status columns to render: the ones the user selected (kept in funnel
-  // order), or every pipeline stage when nothing is selected. This drives the
-  // board's columns so unselected stages disappear rather than sitting empty.
+  // Which status columns to render: the selected ones (in pipeline order), or
+  // every stage when nothing is selected.
   const visibleStatuses = useMemo(
     () =>
-      filters.leadStatus.length
-        ? PIPELINE_STATUSES.filter((s) => filters.leadStatus.includes(s))
-        : PIPELINE_STATUSES,
-    [filters.leadStatus]
+      filters.dealStatus.length
+        ? DEAL_STATUSES.filter((s) => filters.dealStatus.includes(s))
+        : DEAL_STATUSES,
+    [filters.dealStatus]
   );
 
-  // ---- Pipeline stats (over the board book, independent of search/filters) --
+  // ---- Deal stats (over the board book, independent of search/filters) ------
   const stats = useMemo(() => {
     let openValue = 0;
     let won = 0;
     let wonValue = 0;
-    let overdue = 0;
-    for (const l of pipelineScoped) {
-      if (isWon(l.leadStatus)) {
+    let pending = 0;
+    for (const d of periodScoped) {
+      if (WON_DEAL_STATUSES.has(d.dealStatus)) {
         won += 1;
-        wonValue += Number(l.closedAmount) || 0;
-      } else if (isActive(l.leadStatus)) {
-        openValue += Number(l.quotedAmount) || 0;
-        if (isOnOrBefore(l.nextFollowUpDate)) overdue += 1;
+        wonValue += Number(d.closedAmount) || 0;
+      } else if (!DEAD_DEAL_STATUSES.has(d.dealStatus)) {
+        openValue += Number(d.quotedAmount) || 0;
       }
+      if (d.approvalStatus === "pending") pending += 1;
     }
-    return { total: pipelineScoped.length, openValue, won, wonValue, overdue };
-  }, [pipelineScoped]);
+    return { total: periodScoped.length, openValue, won, wonValue, pending };
+  }, [periodScoped]);
 
   // ---- Edit permissions (by role + focus) — same model as the Lead Table ----
-  // A status change (drag or the card's select) is an edit, so it's gated by the
-  // same rule: a DSC edits their own leads; a manager edits only unassigned or
-  // their own; a DSC's lead (or anything while focused on a DSC) is read-only.
-  function canEditLead(lead) {
-    if (!isManager) return lead?.assignedDscId === viewerId;
+  function canEditDeal(deal) {
+    if (!isManager) return deal?.ownerId === viewerId;
     if (focusIsDsc) return false;
-    return lead?.assignedDscId === "" || lead?.assignedDscId === viewerId;
+    return deal?.ownerId === "" || deal?.ownerId === viewerId;
   }
   const canReassign = isManager && !focusIsDsc;
 
-  function handleMove(leadId, status) {
-    const lead = allLeads.find((l) => l.leadId === leadId);
-    if (!canEditLead(lead)) return; // enforce permission (UI also disables it)
-    setAllLeads((rows) =>
-      rows.map((l) => (l.leadId === leadId ? { ...l, leadStatus: status } : l))
+  // Move a deal to a new stage. Moving from a non-won stage INTO a won stage is
+  // the money event: it doesn't set the status directly — it opens the win
+  // request so the Admin can approve. Everything else patches the deal.
+  function handleMove(dealId, status) {
+    const deal = allDeals.find((d) => d.dealId === dealId);
+    if (!deal || !canEditDeal(deal)) return; // enforce permission
+    if (deal.approvalStatus === "pending") return; // locked while pending
+    const enteringWon =
+      WON_DEAL_STATUSES.has(status) && !WON_DEAL_STATUSES.has(deal.dealStatus);
+    if (enteringWon) {
+      setWinDeal(deal);
+      return;
+    }
+    setRawDeals((rows) =>
+      rows.map((d) => (d.dealId === dealId ? { ...d, dealStatus: status } : d))
     );
-    setDetailLead((d) =>
-      d && d.leadId === leadId ? { ...d, leadStatus: status } : d
+    setDetailDeal((d) =>
+      d && d.dealId === dealId ? { ...d, dealStatus: status } : d
     );
-    updateLead(leadId, { leadStatus: status }).catch((e) => console.error(e));
+    updateDeal(dealId, { dealStatus: status }).catch((e) => console.error(e));
   }
 
-  function handleFieldChange(leadId, patch) {
-    const lead = allLeads.find((l) => l.leadId === leadId);
-    const keys = Object.keys(patch);
-    const isReassignOnly = keys.length === 1 && keys[0] === "assignedDscId";
-    if (isReassignOnly ? !canReassign : !canEditLead(lead)) return;
-    setAllLeads((rows) =>
-      rows.map((l) => (l.leadId === leadId ? { ...l, ...patch } : l))
-    );
-    setDetailLead((d) => (d && d.leadId === leadId ? { ...d, ...patch } : d));
-    updateLead(leadId, patch).catch((e) => console.error(e));
-  }
-
-  // Close request from the pipeline detail — same flow as the Lead Table.
-  function handleRequestWin(payload) {
-    const leadId = winRequestLead?.leadId;
-    if (!leadId) return;
+  // The win request → the deal goes "pending" until the Admin approves on the
+  // Approvals screen (which sets dealStatus "Won" + wonApprovedDate).
+  function submitDealWin(payload) {
+    const dealId = winDeal?.dealId;
+    if (!dealId) return;
     const patch = {
       approvalStatus: "pending",
       approvalRequest: payload,
       approvalReason: "",
     };
-    setAllLeads((rows) =>
-      rows.map((l) => (l.leadId === leadId ? { ...l, ...patch } : l))
+    setRawDeals((rows) =>
+      rows.map((d) => (d.dealId === dealId ? { ...d, ...patch } : d))
     );
-    setDetailLead((d) => (d && d.leadId === leadId ? { ...d, ...patch } : d));
-    requestWin(leadId, payload).catch((e) => console.error(e));
-    setWinRequestLead(null);
-  }
-  function canRequestWin(lead) {
-    return (
-      !!lead &&
-      canEditLead(lead) &&
-      isActive(lead.leadStatus) &&
-      lead.approvalStatus !== "pending"
-    );
+    setDetailDeal((d) => (d && d.dealId === dealId ? { ...d, ...patch } : d));
+    requestDealWin(dealId, payload)
+      .then(() => reloadDeals())
+      .catch((e) => console.error(e));
+    setWinDeal(null);
   }
 
-  const canCreateDeal = !focusIsDsc && (isManager || viewer?.role === "dsc");
-  function handleNewDeal(fromLead) {
-    const owner =
-      viewer?.role === "dsc" ? viewer.id : fromLead.assignedDscId || "";
-    const deal = {
-      companyId: fromLead.companyId,
-      company: fromLead.company,
-      industry: fromLead.industry,
-      contactPerson: fromLead.contactPerson,
-      roleTitle: fromLead.roleTitle,
-      phone: fromLead.phone,
-      email: fromLead.email,
-      city: fromLead.city,
-      country: fromLead.country,
-      website: fromLead.website,
-      linkedinUrl: fromLead.linkedinUrl,
-      leadSource: fromLead.leadSource,
-      leadStatus: "New",
-      priority: "Medium",
-      lastContactDate: "",
-      nextFollowUpDate: "",
-      notes: `New deal for ${fromLead.company}.`,
-      assignedDscId: owner,
-      attemptCount: 0,
-      servicesPitched: [],
-      servicesInterested: [],
-      servicesOnboarded: [],
-      quotedAmount: null,
-      closedAmount: null,
-      lostReason: "",
-      assignedDate: monthKeyOf() + "-15",
-      closedDate: "",
-      wonApprovedDate: "",
-      lineItems: [],
-      approvalStatus: "",
-    };
-    createDeal(deal)
-      .then((created) => {
-        setAllLeads((rows) => [created, ...rows]);
-        setDetailLead(created);
-      })
-      .catch((e) => console.error(e));
+  // A deal can be sent for a win when the viewer owns/manages it, it isn't
+  // already won, and there's no pending request.
+  function canRequestWin(deal) {
+    return (
+      !!deal &&
+      canEditDeal(deal) &&
+      !WON_DEAL_STATUSES.has(deal.dealStatus) &&
+      !DEAD_DEAL_STATUSES.has(deal.dealStatus) &&
+      deal.approvalStatus !== "pending"
+    );
   }
 
   const subtitle = focusIsDsc
-    ? `Viewing ${focusDsc.name}'s pipeline (read-only)`
+    ? `Viewing ${focusDsc.name}'s deals (read-only)`
     : effFocus === "self"
-      ? `${viewer?.name}'s pipeline`
-      : "Drag a lead between stages to update its status";
+      ? `${viewer?.name}'s deals`
+      : "Drag a deal between stages — winning a deal needs Admin approval";
 
   return (
     <div className="flex h-full flex-col">
@@ -382,7 +307,7 @@ export default function PipelinePage() {
                   className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
                 >
                   <option value="team">All team</option>
-                  {isBDM ? <option value="self">My leads</option> : null}
+                  {isBDM ? <option value="self">My deals</option> : null}
                   {dscs.map((d) => (
                     <option key={d.id} value={d.id}>
                       {d.name}
@@ -397,7 +322,7 @@ export default function PipelinePage() {
       />
 
       {!loading ? (
-        <PipelineToolbar
+        <DealToolbar
           count={filtered.length}
           stats={stats}
           search={search}
@@ -412,7 +337,7 @@ export default function PipelinePage() {
           filters={filters}
           onFilterChange={handleFilterChange}
           options={filterOptions}
-          showDscFilter={showDscFilter}
+          showOwnerFilter={showOwnerFilter}
           onClearAll={clearAll}
         />
       ) : null}
@@ -424,54 +349,39 @@ export default function PipelinePage() {
           </div>
         ) : filtered.length === 0 ? (
           <div className="px-6 py-20 text-center text-sm text-slate-500">
-            No pipeline leads for this selection. Try another month, widen the
-            date range, or clear the status filter. (New, unworked leads live in
-            the Lead Table.)
+            No deals for this selection. Try another month, widen the date
+            range, or clear the filters. Create deals from a lead in the Lead
+            Table.
           </div>
         ) : (
-          <PipelineBoard
-            leads={filtered}
+          <DealBoard
+            deals={filtered}
             statuses={visibleStatuses}
-            moveOptions={PIPELINE_STATUSES}
+            moveOptions={DEAL_STATUSES}
             onMove={handleMove}
-            onOpen={setDetailLead}
-            canEdit={canEditLead}
+            onOpen={setDetailDeal}
+            canEdit={canEditDeal}
           />
         )}
       </div>
 
-      <LeadDetailSidebar
-        lead={detailLead}
-        canEdit={detailLead ? canEditLead(detailLead) : false}
-        canAssign={canReassign}
-        groups={groups}
-        onChange={handleFieldChange}
-        onClose={() => setDetailLead(null)}
-        canRequestWin={detailLead ? canRequestWin(detailLead) : false}
-        onRequestWin={(lead) => setWinRequestLead(lead)}
-        siblingDeals={
-          detailLead
-            ? allLeads.filter(
-                (l) =>
-                  l.companyId === detailLead.companyId &&
-                  l.leadId !== detailLead.leadId
-              )
-            : []
-        }
-        onOpenDeal={(leadId) =>
-          setDetailLead(allLeads.find((l) => l.leadId === leadId) || null)
-        }
-        canCreateDeal={canCreateDeal}
-        onNewDeal={handleNewDeal}
+      <DealDetailSidebar
+        deal={detailDeal}
+        config={config}
+        canEditStatus={detailDeal ? canEditDeal(detailDeal) : false}
+        canRequestWin={detailDeal ? canRequestWin(detailDeal) : false}
+        onChangeStatus={handleMove}
+        onRequestWin={(deal) => setWinDeal(deal)}
+        onClose={() => setDetailDeal(null)}
       />
 
-      <WinRequestModal
-        open={!!winRequestLead}
-        lead={winRequestLead}
+      <DealWinRequestModal
+        open={!!winDeal}
+        deal={winDeal}
         requestedBy={viewerId}
         today={monthKeyOf() + "-15"}
-        onSubmit={handleRequestWin}
-        onClose={() => setWinRequestLead(null)}
+        onSubmit={submitDealWin}
+        onClose={() => setWinDeal(null)}
       />
     </div>
   );
