@@ -213,10 +213,10 @@ export default function CompensationPage() {
             />
             <NumberField
               label="Company monthly target"
-              value={draft.bdm.monthlyLeadTarget}
-              onChange={(v) => set("bdm.monthlyLeadTarget", v)}
-              suffix="closed leads"
-              help="Total closed leads for the team per month"
+              value={draft.bdm.monthlyDealTarget}
+              onChange={(v) => set("bdm.monthlyDealTarget", v)}
+              suffix="deals won"
+              help="Total deals the team must win per month"
             />
           </Grid>
         </Section>
@@ -253,10 +253,10 @@ export default function CompensationPage() {
             />
             <NumberField
               label="DSC monthly target"
-              value={draft.dsc.monthlyLeadTarget}
-              onChange={(v) => set("dsc.monthlyLeadTarget", v)}
-              suffix="closed leads"
-              help="Each DSC must close at least this many per month"
+              value={draft.dsc.monthlyDealTarget}
+              onChange={(v) => set("dsc.monthlyDealTarget", v)}
+              suffix="deals won"
+              help="Each DSC must win at least this many deals per month"
             />
           </Grid>
         </Section>

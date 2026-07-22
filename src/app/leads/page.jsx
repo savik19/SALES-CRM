@@ -296,7 +296,14 @@ export default function LeadsPage() {
         variant: "team",
         name: viewer.name,
         self: false,
-        data: teamAnalytics(allLeads, dscs, config, viewer, analyticsMonth),
+        data: teamAnalytics(
+          allLeads,
+          deals,
+          dscs,
+          config,
+          viewer,
+          analyticsMonth
+        ),
       };
     }
     if (focusIsDsc) {
@@ -307,13 +314,14 @@ export default function LeadsPage() {
         data: personAnalytics(
           focusDsc,
           allLeads,
+          deals,
           config,
           analyticsMonth,
           "dsc"
         ),
       };
     }
-    // "self" — the viewer's own leads (DSC, or a BDM viewing "My leads").
+    // "self" — the viewer's own leads/deals (DSC, or a BDM viewing "My leads").
     return {
       variant: "dsc",
       name: viewer.name,
@@ -321,6 +329,7 @@ export default function LeadsPage() {
       data: personAnalytics(
         viewer,
         allLeads,
+        deals,
         config,
         analyticsMonth,
         viewer.role === "bdm" ? "bdm" : "dsc"
@@ -332,6 +341,7 @@ export default function LeadsPage() {
     focusIsDsc,
     focusDsc,
     allLeads,
+    deals,
     dscs,
     config,
     analyticsMonth,

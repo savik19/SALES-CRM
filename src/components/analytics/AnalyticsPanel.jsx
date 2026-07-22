@@ -250,23 +250,23 @@ function DscView({ name, monthLbl, data }) {
           info={`Leads with a follow-up scheduled in ${monthLbl}.`}
         />
         <StatTile
-          label="Closed (won)"
+          label="Deals won"
           value={m.won}
           tone="good"
-          info={`Leads you won/closed in ${monthLbl}.`}
+          info={`Deals you won (Admin-approved) in ${monthLbl}. One deal = one offering.`}
         />
         <StatTile
           label="Pipeline value"
           value={money(m.pipelineValue)}
-          info={`Total quoted value of your open pipeline leads worked in ${monthLbl} (proposals sent / quotations made).`}
+          info="Total quoted value of your open deals (not yet won or lost) — a current snapshot."
         />
       </div>
       <div className="grid grid-cols-1 items-start gap-3 lg:grid-cols-3">
         <TargetMeter
-          label="Monthly leads target"
+          label="Monthly deals target"
           done={m.won}
           target={e.target}
-          info={`Leads won in ${monthLbl} vs your monthly target. Meeting it unlocks performance pay + commission.`}
+          info={`Deals won in ${monthLbl} vs your monthly target. Meeting it unlocks performance pay + commission.`}
         />
         <div className="lg:col-span-2">
           <EarningsCard
@@ -323,21 +323,21 @@ function TeamView({ monthLbl, data }) {
           info={`Team leads at "Meeting Done" worked in ${monthLbl}.`}
         />
         <StatTile
-          label="Closed (won)"
+          label="Deals won"
           value={m.won}
           tone="good"
-          info={`Leads the team won/closed in ${monthLbl}.`}
+          info={`Deals the team won (Admin-approved) in ${monthLbl}.`}
         />
         <StatTile
           label="Won value"
           value={money(m.wonValue)}
           tone="good"
-          info={`Total closed amount of leads won in ${monthLbl}.`}
+          info={`Total closed amount of deals won in ${monthLbl}.`}
         />
         <StatTile
           label="Pipeline value"
           value={money(m.pipelineValue)}
-          info={`Total quoted value of open pipeline leads worked in ${monthLbl}.`}
+          info="Total quoted value of the team's open deals (not yet won or lost)."
         />
       </div>
 
@@ -346,7 +346,7 @@ function TeamView({ monthLbl, data }) {
           label="Company monthly target"
           done={companyClosed}
           target={companyTarget}
-          info={`Team leads won in ${monthLbl} vs the company monthly target.`}
+          info={`Team deals won in ${monthLbl} vs the company monthly target.`}
         />
         <div className="lg:col-span-2">
           <StatusBars byStatus={m.byStatus} total={m.totalLeads} />
@@ -363,7 +363,7 @@ function TeamView({ monthLbl, data }) {
                 Total leads
               </th>
               <th className="px-4 py-2 font-semibold text-slate-600">
-                Closed ({monthLbl})
+                Deals ({monthLbl})
               </th>
               <th className="px-4 py-2 font-semibold text-slate-600">Target</th>
               <th className="px-4 py-2 font-semibold text-slate-600">

@@ -5,9 +5,9 @@
 // through to what the DSC/BDM analytics show.
 // ---------------------------------------------------------------------------
 
-import { LEAD_STATUSES } from "@/data/mockLeads";
+import { LEAD_STATUSES, WON_DEAL_STATUSES } from "@/data/mockLeads";
 import { monthsSince, inMonth, isoInRange } from "@/lib/format";
-import { dealCommission, commissionStatus } from "@/lib/commission";
+import { singleDealCommission, commissionStatus } from "@/lib/commission";
 
 // A "closed"/won deal = Won or any post-sale status (not Cancelled, which is a
 // won deal that fell apart, and not Lost / On Hold).
@@ -46,6 +46,47 @@ export function leadInPeriod(lead, from, to) {
     isoInRange(lead.nextFollowUpDate, from, to) ||
     isoInRange(lead.closedDate, from, to)
   );
+}
+
+// ---- Deal metrics (Lead → Deal model) -------------------------------------
+// Under the Lead → Deal model the money lives on DEALS, so won counts, won value,
+// open pipeline value, target and commission are all computed from a person's
+// deals — while the lead funnel (below) still measures prospecting activity.
+function isDealDead(status) {
+  return status === "Lost" || status === "Cancelled";
+}
+
+// A deal counts as won in month `ym` when it's in a won stage and was approved
+// (wonApprovedDate) in that month. The approval date is the money event.
+export function dealWonInMonth(deal, ym) {
+  return (
+    WON_DEAL_STATUSES.has(deal.dealStatus) && inMonth(deal.wonApprovedDate, ym)
+  );
+}
+
+// Money metrics for a set of deals, scoped to month `ym`:
+//   dealsWon    — deals won (approved) in the month
+//   wonValue    — Σ closedAmount of those won deals
+//   openValue   — Σ quotedAmount of currently-open deals (snapshot, not won/dead)
+//   dealsCreated— deals created in the month
+export function dealMetrics(deals, ym) {
+  let dealsWon = 0;
+  let wonValue = 0;
+  let openValue = 0;
+  let dealsCreated = 0;
+  for (const d of deals) {
+    if (inMonth(d.createdDate, ym)) dealsCreated += 1;
+    if (dealWonInMonth(d, ym)) {
+      dealsWon += 1;
+      wonValue += Number(d.closedAmount) || 0;
+    } else if (
+      !WON_DEAL_STATUSES.has(d.dealStatus) &&
+      !isDealDead(d.dealStatus)
+    ) {
+      openValue += Number(d.quotedAmount) || 0;
+    }
+  }
+  return { dealsWon, wonValue, openValue, dealsCreated };
 }
 
 // Metrics for a set of leads, scoped to a "YYYY-MM" month `ym`.
@@ -149,7 +190,7 @@ export function personEarnings({
   comp,
   deductionPct,
 }) {
-  const target = comp.monthlyLeadTarget;
+  const target = comp.monthlyDealTarget;
 
   if (role === "dsc" && inTraining) {
     const gross = comp.trainingSalaryMonthly;
@@ -198,35 +239,57 @@ export function personEarnings({
 
 // Price a set of won deals through the catalog for `role`, splitting the total
 // into finalized (past the quarterly hold → payable now) and pending (still in
-// the hold). Reversed/unapproved deals contribute 0. `now` is injectable.
+// the hold). Each deal is ONE offering priced on its closed amount (Lead → Deal
+// model). Reversed/unapproved deals contribute 0. `now` is injectable.
 export function commissionForDeals(deals, config, role, now = new Date()) {
   let finalized = 0;
   let pending = 0;
   for (const deal of deals) {
     const status = commissionStatus(deal, now);
     if (status !== "finalized" && status !== "pending") continue;
-    const amount = dealCommission(deal, config, role);
+    const amount = singleDealCommission(deal, config, role);
     if (status === "finalized") finalized += amount;
     else pending += amount;
   }
   return { finalized, pending, total: finalized + pending };
 }
 
-// Full "own leads" analytics for one person for month `ym`, using their
-// effective package. Works for a DSC (their own view) or a BDM ("My leads").
-// Earnings are month-scoped: the target gate uses leads won in `ym`.
-export function personAnalytics(person, allLeads, config, ym, role = "dsc") {
-  const own = allLeads.filter((l) => l.assignedDscId === person.id);
-  const metrics = monthMetrics(own, ym);
+// Merge a person's lead funnel (prospecting) with their DEAL money metrics, so
+// the panel's `won` / `wonValue` / `pipelineValue` reflect DEALS (the unit of
+// sale) while the funnel counts (contacted, meetings, follow-ups…) stay leads.
+function mergedMetrics(ownLeads, ownDeals, ym) {
+  const funnel = monthMetrics(ownLeads, ym);
+  const dm = dealMetrics(ownDeals, ym);
+  return {
+    ...funnel,
+    won: dm.dealsWon,
+    wonValue: dm.wonValue,
+    pipelineValue: dm.openValue,
+    dealsCreated: dm.dealsCreated,
+  };
+}
+
+// Full analytics for one person for month `ym`, using their effective package.
+// Works for a DSC (their own view) or a BDM ("My leads"). Money is DEAL-based:
+// the target gate uses DEALS won in `ym`; commission is priced per deal.
+export function personAnalytics(
+  person,
+  allLeads,
+  allDeals,
+  config,
+  ym,
+  role = "dsc"
+) {
+  const ownLeads = allLeads.filter((l) => l.assignedDscId === person.id);
+  const ownDeals = allDeals.filter((d) => d.ownerId === person.id);
+  const metrics = mergedMetrics(ownLeads, ownDeals, ym);
   const comp = resolvePersonComp(config, role, person);
   const inTraining =
     role === "dsc" &&
     (monthsSince(person.joiningDate) ?? 99) < comp.trainingMonths;
-  // Commission is priced through the catalog over the deals this person won in
+  // Commission is priced through the catalog over the DEALS this person won in
   // the month, split into finalized (payable) and pending (in the 3-month hold).
-  const wonDeals = own.filter(
-    (l) => isWon(l.leadStatus) && inMonth(l.closedDate, ym)
-  );
+  const wonDeals = ownDeals.filter((d) => dealWonInMonth(d, ym));
   const comm = commissionForDeals(wonDeals, config, role);
   const earnings = personEarnings({
     role,
@@ -247,22 +310,22 @@ export function personAnalytics(person, allLeads, config, ym, role = "dsc") {
   };
 }
 
-// A single DSC's analytics (their own leads only).
-export function dscAnalytics(dsc, allLeads, config, ym) {
-  return personAnalytics(dsc, allLeads, config, ym, "dsc");
+// A single DSC's analytics (their own leads + deals only).
+export function dscAnalytics(dsc, allLeads, allDeals, config, ym) {
+  return personAnalytics(dsc, allLeads, allDeals, config, ym, "dsc");
 }
 
 // Full team analytics for the BDM / Admin (whole company) for month `ym`.
 // `manager` is the viewer so the BDM earnings card uses their effective package.
-export function teamAnalytics(allLeads, dscs, config, manager, ym) {
-  const companyMetrics = monthMetrics(allLeads, ym);
-  const perDsc = dscs.map((d) => dscAnalytics(d, allLeads, config, ym));
+export function teamAnalytics(allLeads, allDeals, dscs, config, manager, ym) {
+  const companyMetrics = mergedMetrics(allLeads, allDeals, ym);
+  const perDsc = dscs.map((d) =>
+    dscAnalytics(d, allLeads, allDeals, config, ym)
+  );
   const bdmComp = resolvePersonComp(config, "bdm", manager);
   // The BDM earns the manager override (BDM catalog rate) on EVERY team-won deal
   // in the month — priced through the catalog, same finalized/pending split.
-  const companyWonDeals = allLeads.filter(
-    (l) => isWon(l.leadStatus) && inMonth(l.closedDate, ym)
-  );
+  const companyWonDeals = allDeals.filter((d) => dealWonInMonth(d, ym));
   const bdmComm = commissionForDeals(companyWonDeals, config, "bdm");
   const bdmEarnings = personEarnings({
     role: "bdm",
@@ -277,7 +340,7 @@ export function teamAnalytics(allLeads, dscs, config, manager, ym) {
     companyMetrics,
     perDsc,
     bdmEarnings,
-    companyTarget: bdmComp.monthlyLeadTarget,
+    companyTarget: bdmComp.monthlyDealTarget,
     companyClosed: companyMetrics.won,
   };
 }
