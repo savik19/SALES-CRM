@@ -36,18 +36,18 @@ deals**.
 
 ## How the frontend consumes this
 
-| Frontend function                            | Endpoint                         | Used by                    |
-| -------------------------------------------- | -------------------------------- | -------------------------- |
-| `leadsApi.getLeads()`                        | `GET /api/leads`                 | Lead Table (prospects)     |
-| `leadsApi.getLeadById(leadId)`               | `GET /api/leads/:id`             | Lead detail                |
-| `leadsApi.updateLead(leadId, changes)`       | `PATCH /api/leads/:id`           | Edit / interest / status   |
-| `dealsApi.getDeals()`                        | `GET /api/deals`                 | Pipeline, Approvals        |
-| `dealsApi.getDealsByLead(leadId)`            | `GET /api/leads/:id/deals`       | Lead detail deals list     |
-| `dealsApi.createDeal(deal)`                  | `POST /api/deals`                | Create-deal (from a lead)  |
-| `dealsApi.updateDeal(dealId, changes)`       | `PATCH /api/deals/:id`           | Pipeline stage / fields    |
-| `dealsApi.requestDealWin(dealId, payload)`   | `POST /api/deals/:id/request-win`| Win request (DSC)          |
-| `dealsApi.approveDealWin(dealId, decision)`  | `POST /api/deals/:id/approve-win`| Approve win (Admin)        |
-| `dealsApi.rejectDealWin(dealId, decision)`   | `POST /api/deals/:id/reject-win` | Reject win (Admin)         |
+| Frontend function                           | Endpoint                          | Used by                   |
+| ------------------------------------------- | --------------------------------- | ------------------------- |
+| `leadsApi.getLeads()`                       | `GET /api/leads`                  | Lead Table (prospects)    |
+| `leadsApi.getLeadById(leadId)`              | `GET /api/leads/:id`              | Lead detail               |
+| `leadsApi.updateLead(leadId, changes)`      | `PATCH /api/leads/:id`            | Edit / interest / status  |
+| `dealsApi.getDeals()`                       | `GET /api/deals`                  | Pipeline, Approvals       |
+| `dealsApi.getDealsByLead(leadId)`           | `GET /api/leads/:id/deals`        | Lead detail deals list    |
+| `dealsApi.createDeal(deal)`                 | `POST /api/deals`                 | Create-deal (from a lead) |
+| `dealsApi.updateDeal(dealId, changes)`      | `PATCH /api/deals/:id`            | Pipeline stage / fields   |
+| `dealsApi.requestDealWin(dealId, payload)`  | `POST /api/deals/:id/request-win` | Win request (DSC)         |
+| `dealsApi.approveDealWin(dealId, decision)` | `POST /api/deals/:id/approve-win` | Approve win (Admin)       |
+| `dealsApi.rejectDealWin(dealId, decision)`  | `POST /api/deals/:id/reject-win`  | Reject win (Admin)        |
 
 The frontend passes **no auth today**. When auth exists, add it in the `apiGet`
 helper / `fetch` calls (one spot) — e.g. a Sanctum cookie (`credentials: "include"`)
@@ -134,14 +134,14 @@ A **Deal** is one confirmed offering under a Lead. Canonical typedef:
   "approvalDecidedDate": "", // ISO date of the decision
   "paymentStatus": "Pending", // "Pending" | "Partial" | "Paid"
   "receivedAmount": 0, // Rupees received so far
-  "notes": "" // free text
+  "notes": "", // free text
 }
 ```
 
 Only deals with a `wonApprovedDate` in a won stage count as **won** for analytics
-+ commission. One deal carries exactly **one** `offeringId`, so its commission is
-that offering's rule applied to `closedAmount` (no line items — see commission
-math below).
+and commission. One deal carries exactly **one** `offeringId`, so its commission
+is that offering's rule applied to `closedAmount` (no line items — see the
+commission math below).
 
 **Analytics dates.** The analytics are month-filtered and computed client-side
 (`src/lib/analytics.js`). The **lead funnel** (prospecting) comes from lead dates
@@ -532,13 +532,13 @@ CRM-only and filled in later. Duplicate detection matches on Phone OR Email OR
 
 ## Endpoints to add as those screens are built
 
-| Screen (roadmap) | Suggested endpoints                                           |
-| ---------------- | ------------------------------------------------------------- |
+| Screen (roadmap) | Suggested endpoints                                                       |
+| ---------------- | ------------------------------------------------------------------------- |
 | Deals / Pipeline | `GET/POST /api/deals`, `PATCH /api/deals/:id`, win request/approve/reject |
-| User Management  | `GET/POST /api/users`, `PUT /api/users/:id`, status/invite    |
-| Compensation     | `GET/PUT /api/compensation` (defaults + per-person overrides) |
-| Auth             | `GET /api/me` → current user (drives role scoping)            |
-| Analytics / KPIs | see `docs/ROADMAP.md`                                         |
+| User Management  | `GET/POST /api/users`, `PUT /api/users/:id`, status/invite                |
+| Compensation     | `GET/PUT /api/compensation` (defaults + per-person overrides)             |
+| Auth             | `GET /api/me` → current user (drives role scoping)                        |
+| Analytics / KPIs | see `docs/ROADMAP.md`                                                     |
 
 ---
 
