@@ -51,6 +51,46 @@ export const LEAD_STATUSES = [
   "Cancelled",
 ];
 
+// ---- Deal statuses (the sales pipeline for a single offering) --------------
+// Under the Lead → Deal model, a Deal is one confirmed offering. THESE are the
+// stages a deal moves through (the Pipeline board is a board of deals). "Won" is
+// the approval-gated money event; everything after it is post-sale/delivery and
+// is handed to the delivery module in the real backend.
+export const DEAL_STATUSES = [
+  "Open",
+  "Proposal Sent",
+  "Negotiation",
+  "Won",
+  "Project Started",
+  "Project Delivered",
+  "Closed",
+  "Lost",
+  "On Hold",
+  "Cancelled",
+];
+
+// A deal counts as won once it reaches one of these (same rule as before, at the
+// deal level). Cancelled/Lost are reversals; On Hold is paused.
+export const WON_DEAL_STATUSES = new Set([
+  "Won",
+  "Project Started",
+  "Project Delivered",
+  "Closed",
+]);
+
+// ---- Lead (prospect) statuses ----------------------------------------------
+// Under the new model the LEAD is a prospect record; winning happens on deals.
+// These are the prospect lifecycle states. Kept configurable for the Admin.
+export const PROSPECT_STATUSES = [
+  "New",
+  "Contacted",
+  "Interested",
+  "Converted",
+  "On Hold",
+  "Lost",
+  "Do Not Contact",
+];
+
 export const PRIORITIES = ["Low", "Medium", "High", "Urgent"];
 
 export const LEAD_SOURCES = [
@@ -1310,7 +1350,10 @@ function _num(id) {
 // (lib/commission) can price it against the catalog. Seed ids mirror the
 // compensation catalog (lib/compConfig). Everything here is mock seeding; a real
 // backend stores line items directly on the deal.
-const OFFERING_ID_BY_NAME = {
+// Maps a service/product NAME (as used in the leads' service arrays) to its
+// catalog offering id. Exported so the Deal layer (data/mockDeals, lib/dealsApi)
+// can turn a lead's interest into deals. A real backend joins on offering ids.
+export const OFFERING_ID_BY_NAME = {
   "Custom Software": "svc-custom-software",
   "Website Development": "svc-website",
   "Digital Marketing": "svc-digital-marketing",
@@ -1318,6 +1361,16 @@ const OFFERING_ID_BY_NAME = {
   "Mobile App": "svc-mobile-app",
   "SaaS Subscription": "prd-saas-subscription",
 };
+
+// The offering ids a lead is "interested in" (non-binding), derived from the
+// services it showed interest in / was pitched. Interest converts into Deals.
+export function interestedOfferingIdsFor(lead) {
+  const names =
+    (lead.servicesInterested && lead.servicesInterested.length
+      ? lead.servicesInterested
+      : lead.servicesPitched) || [];
+  return [...new Set(names.map((n) => OFFERING_ID_BY_NAME[n]).filter(Boolean))];
+}
 
 // A stable company id from the company name, so deals for the same company can be
 // grouped (a company can have many deals over time).
@@ -1368,7 +1421,12 @@ function withDates(lead) {
     // The approval flow sets this (and gates the win) for new deals.
     wonApprovedDate: won ? closedDate : "",
     lineItems: _lineItems(lead, won),
+    // Company → Deal model: the offerings this lead is interested in (→ deals).
+    interestedOfferingIds: interestedOfferingIdsFor(lead),
   };
 }
+
+// Company-id helper reused by the Deal layer for grouping.
+export { _companyId as companyIdFor };
 
 export const MOCK_LEADS = RAW_LEADS.map(withDates);
