@@ -21,7 +21,7 @@
 import {
   MOCK_LEADS,
   OFFERING_ID_BY_NAME,
-  WON_DEAL_STATUSES,
+  CREDITED_DEAL_STATUSES,
 } from "./mockLeads";
 
 // Map a lead's current (flat) status to the equivalent DEAL status, so the seed
@@ -68,7 +68,10 @@ function dealsForLead(lead) {
   if (!dealStatus) return [];
 
   const offeringIds = committedOfferingIds(lead);
-  const won = WON_DEAL_STATUSES.has(dealStatus);
+  // Credited = approved (Project Started onward). "Won" = the client has agreed
+  // (finalized amount set) but it hasn't been sent for / granted approval yet.
+  const credited = CREDITED_DEAL_STATUSES.has(dealStatus);
+  const agreed = dealStatus === "Won";
   const totalClosed = Number(lead.closedAmount) || 0;
   const totalQuoted = Number(lead.quotedAmount) || totalClosed || 0;
   const n = offeringIds.length;
@@ -76,7 +79,9 @@ function dealsForLead(lead) {
 
   return offeringIds.map((offeringId, i) => {
     const quotedAmount = n ? Math.round(totalQuoted / n) : 0;
-    const closedAmount = won && n ? Math.round(totalClosed / n) : null;
+    // The finalized amount is known once the client agrees (Won) or later.
+    const closedAmount =
+      (credited || agreed) && n ? Math.round(totalClosed / n) : null;
     return {
       dealId: `DEAL-${num}-${i + 1}`,
       leadId: lead.leadId,
@@ -87,15 +92,15 @@ function dealsForLead(lead) {
       quotedAmount,
       closedAmount,
       createdDate: lead.assignedDate || "",
-      approvalStatus: won ? "approved" : "",
+      approvalStatus: credited ? "approved" : "",
       approvalRequest: null,
       approvalReason: "",
-      wonApprovedDate: won ? lead.closedDate || "" : "",
-      approvalDecidedBy: won ? "u-admin" : "",
-      approvalDecidedDate: won ? lead.closedDate || "" : "",
-      // Lightweight payment groundwork (decision #9): won deals seed as Paid.
-      paymentStatus: won ? "Paid" : "Pending",
-      receivedAmount: won ? closedAmount || 0 : 0,
+      wonApprovedDate: credited ? lead.closedDate || "" : "",
+      approvalDecidedBy: credited ? "u-admin" : "",
+      approvalDecidedDate: credited ? lead.closedDate || "" : "",
+      // Lightweight payment groundwork: approved (credited) deals seed as Paid.
+      paymentStatus: credited ? "Paid" : "Pending",
+      receivedAmount: credited ? closedAmount || 0 : 0,
       notes: "",
     };
   });

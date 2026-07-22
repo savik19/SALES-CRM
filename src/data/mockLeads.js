@@ -53,9 +53,12 @@ export const LEAD_STATUSES = [
 
 // ---- Deal statuses (the sales pipeline for a single offering) --------------
 // Under the Lead → Deal model, a Deal is one confirmed offering. THESE are the
-// stages a deal moves through (the Pipeline board is a board of deals). "Won" is
-// the approval-gated money event; everything after it is post-sale/delivery and
-// is handed to the delivery module in the real backend.
+// stages a deal moves through (the Pipeline board is a board of deals).
+//
+// The DSC moves a deal freely up to "Won" (the client has agreed). Advancing it
+// to "Project Started" is the MONEY EVENT: it needs the finalized amount and
+// Admin approval. Only an APPROVED deal (Project Started onward, with a
+// wonApprovedDate) is credited toward target + commission.
 export const DEAL_STATUSES = [
   "Open",
   "Proposal Sent",
@@ -69,14 +72,20 @@ export const DEAL_STATUSES = [
   "Cancelled",
 ];
 
-// A deal counts as won once it reaches one of these (same rule as before, at the
-// deal level). Cancelled/Lost are reversals; On Hold is paused.
-export const WON_DEAL_STATUSES = new Set([
-  "Won",
+// Entering one of these stages requires the finalized amount + Admin approval —
+// "Project Started" is the gate (delivery stages follow it). A DSC cannot set
+// these directly; the approval flow does (see dealsApi.approveDealWin).
+export const APPROVAL_GATED_DEAL_STATUSES = new Set([
   "Project Started",
   "Project Delivered",
   "Closed",
 ]);
+
+// A deal is CREDITED (counts toward target + commission) once it's approved —
+// i.e. it reaches a gated stage and carries a wonApprovedDate. "Won" alone is a
+// pre-approval "client agreed" stage and is NOT yet credited. Cancelled/Lost are
+// reversals; On Hold is paused.
+export const CREDITED_DEAL_STATUSES = APPROVAL_GATED_DEAL_STATUSES;
 
 // ---- Lead (prospect) statuses ----------------------------------------------
 // Under the new model the LEAD is a prospect record; winning happens on deals.
