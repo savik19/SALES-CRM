@@ -8,8 +8,9 @@ import { formatINR, formatDate, discountPctLabel } from "@/lib/format";
 
 // Slide-over detail for ONE deal (Lead → Deal model). The pipeline is a board of
 // deals, so clicking a card opens the deal — its offering, money, status,
-// approval and payment. The win-request lives here too (Won is the money event,
-// gated by Admin approval). "Open lead" jumps to the parent prospect record.
+// approval and payment. The DSC maintains the PITCHED (quoted) and FINALIZED
+// (closed) amounts here; the discount is derived. Advancing to Project Started is
+// the money event, gated by Admin approval. "Open lead" jumps to the prospect.
 function Field({ label, value }) {
   return (
     <div>
@@ -21,13 +22,45 @@ function Field({ label, value }) {
   );
 }
 
+// An editable rupee amount (falls back to a read-only figure when locked).
+function AmountField({ label, value, editable, onChange, hint }) {
+  return (
+    <div>
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+        {label}
+      </div>
+      {editable ? (
+        <input
+          type="number"
+          min={0}
+          value={value ?? ""}
+          onChange={(e) =>
+            onChange(e.target.value === "" ? null : Number(e.target.value))
+          }
+          aria-label={label}
+          className="mt-0.5 w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm text-slate-800 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+        />
+      ) : (
+        <div className="mt-0.5 text-sm text-slate-800">
+          {value != null ? formatINR(value) : "—"}
+        </div>
+      )}
+      {hint ? (
+        <p className="mt-0.5 text-[10px] text-slate-400">{hint}</p>
+      ) : null}
+    </div>
+  );
+}
+
 export default function DealDetailSidebar({
   deal, // enriched with { offeringName, company }
   config,
   canEditStatus = false,
+  canEditAmounts = false, // may edit pitched/finalized (owner/manager, pre-approval)
   canRequestWin = false,
   onChangeStatus, // (dealId, status) => void
-  onRequestWin, // (deal) => void
+  onChangeField, // (dealId, patch) => void — edit amounts/fields
+  onRequestWin, // (deal) => void — request approval to start the project
   onOpenLead, // (leadId) => void
   onClose,
 }) {
@@ -42,6 +75,7 @@ export default function DealDetailSidebar({
   const pending = deal?.approvalStatus === "pending";
   const dscComm = deal ? singleDealCommission(deal, config, "dsc") : 0;
   const bdmComm = deal ? singleDealCommission(deal, config, "bdm") : 0;
+  const setAmount = (key) => (v) => onChangeField?.(deal.dealId, { [key]: v });
 
   return (
     <>
@@ -93,11 +127,11 @@ export default function DealDetailSidebar({
 
             {pending ? (
               <div className="border-b border-amber-200 bg-amber-50 px-6 py-2.5 text-xs text-amber-700">
-                ⏳ Win request pending Admin approval.
+                ⏳ Awaiting Admin approval to start the project.
               </div>
             ) : deal.approvalStatus === "rejected" ? (
               <div className="border-b border-red-200 bg-red-50 px-6 py-2.5 text-xs text-red-700">
-                ✕ Last win request was rejected
+                ✕ Last approval request was rejected
                 {deal.approvalReason ? `: “${deal.approvalReason}”` : ""}.
                 Revise and resend.
               </div>
@@ -124,31 +158,38 @@ export default function DealDetailSidebar({
                     </option>
                   ))}
                 </select>
+                <p className="mt-1 text-[10px] text-slate-400">
+                  Moving to Project Started needs the finalized amount + Admin
+                  approval.
+                </p>
               </div>
 
+              {/* Money — pitched + finalized (editable), discount derived */}
               <div className="grid grid-cols-2 gap-4">
-                <Field
-                  label="Owner"
-                  value={deal.ownerId ? dscName(deal.ownerId) : "Unassigned"}
+                <AmountField
+                  label="Pitched"
+                  value={deal.quotedAmount}
+                  editable={canEditAmounts}
+                  onChange={setAmount("quotedAmount")}
+                  hint="What we quoted"
                 />
-                <Field label="Created" value={formatDate(deal.createdDate)} />
-                <Field
-                  label="Quoted"
-                  value={formatINR(deal.quotedAmount ?? 0)}
-                />
-                <Field
-                  label="Closed"
-                  value={
-                    deal.closedAmount != null
-                      ? formatINR(deal.closedAmount)
-                      : "—"
-                  }
+                <AmountField
+                  label="Finalized"
+                  value={deal.closedAmount}
+                  editable={canEditAmounts}
+                  onChange={setAmount("closedAmount")}
+                  hint="Agreed price"
                 />
                 <Field label="Discount" value={discountPctLabel(deal)} />
                 <Field
                   label="Payment"
                   value={deal.paymentStatus || "Pending"}
                 />
+                <Field
+                  label="Owner"
+                  value={deal.ownerId ? dscName(deal.ownerId) : "Unassigned"}
+                />
+                <Field label="Created" value={formatDate(deal.createdDate)} />
               </div>
 
               <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
@@ -167,7 +208,7 @@ export default function DealDetailSidebar({
                 </div>
                 <p className="mt-1 text-[11px] text-slate-400">
                   From the compensation catalog for this offering. Credited when
-                  the deal is Won and approved.
+                  the project starts (approved).
                 </p>
               </div>
 
@@ -200,11 +241,10 @@ export default function DealDetailSidebar({
                   onClick={() => onRequestWin(deal)}
                   className="w-full rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
                 >
-                  🏆 Win deal — request approval
+                  🚀 Start project — request approval
                 </button>
                 <p className="mt-1.5 text-center text-[11px] text-slate-400">
-                  Sends the deal to the Admin; credited as won only once
-                  approved.
+                  Sends the deal to the Admin; credited only once approved.
                 </p>
               </div>
             ) : null}

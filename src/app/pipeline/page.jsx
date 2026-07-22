@@ -7,16 +7,15 @@ import DealBoard from "@/components/pipeline/DealBoard";
 import DealToolbar from "@/components/pipeline/DealToolbar";
 import DealDetailSidebar from "@/components/pipeline/DealDetailSidebar";
 import DealWinRequestModal from "@/components/pipeline/DealWinRequestModal";
-import { getDeals, updateDeal, requestDealWin } from "@/lib/dealsApi";
-import { getLeads } from "@/lib/leadsApi";
 import { useCompConfig } from "@/lib/compConfig";
-import { findOffering } from "@/lib/commission";
-import { USER_BY_ID, DEAL_STATUSES, WON_DEAL_STATUSES } from "@/data/mockLeads";
+import { useDeals, DEAD_DEAL_STATUSES } from "@/lib/useDeals";
+import {
+  USER_BY_ID,
+  DEAL_STATUSES,
+  CREDITED_DEAL_STATUSES,
+} from "@/data/mockLeads";
 import { useActiveDscs, useUsers } from "@/lib/usersConfig";
 import { monthRange, recentMonths, monthKeyOf, isoInRange } from "@/lib/format";
-
-// Deals that are still being actively worked (not yet a terminal money outcome).
-const DEAD_DEAL_STATUSES = new Set(["Lost", "Cancelled"]);
 
 const EMPTY_FILTERS = { dealStatus: [], ownerId: [] };
 const SEARCH_KEYS = ["company", "offeringName"];
@@ -32,10 +31,10 @@ function dealInPeriod(deal, from, to) {
 
 // Pipeline / Kanban board of DEALS (Lead → Deal model). Each card is one offering
 // under a company; drag a card between stages — or use the card's status select —
-// to move the deal. Moving a deal INTO a won stage doesn't close it directly: it
-// raises an Admin approval request (Won is the money event that credits target +
-// commission). Mirrors the Lead Table's role model: a DSC sees only their own
-// deals; a manager can focus the board on the team, their own, or one DSC.
+// to move the deal. The DSC moves it freely up to "Won"; advancing to
+// "Project Started" needs the finalized amount + Admin approval (the money event
+// that credits target + commission). Mirrors the Lead Table's role model: a DSC
+// sees only their own deals; a manager can focus on the team, their own, or a DSC.
 export default function PipelinePage() {
   const dscs = useActiveDscs();
   const { users } = useUsers();
@@ -73,43 +72,9 @@ export default function PipelinePage() {
     }
   }, [users, viewerId]);
 
-  // ---- Data (deals + a lead lookup for company / navigation) ---------------
-  const [rawDeals, setRawDeals] = useState([]);
-  const [leadsById, setLeadsById] = useState({});
-  const [loading, setLoading] = useState(true);
-  const [detailDeal, setDetailDeal] = useState(null);
-  const [winDeal, setWinDeal] = useState(null); // deal awaiting the win-request modal
-
-  useEffect(() => {
-    let active = true;
-    Promise.all([getDeals(), getLeads()]).then(([deals, leads]) => {
-      if (!active) return;
-      const map = {};
-      for (const l of leads) map[l.leadId] = l;
-      setLeadsById(map);
-      setRawDeals(deals);
-      setLoading(false);
-    });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  function reloadDeals() {
-    getDeals().then(setRawDeals);
-  }
-
-  // Enrich each deal with its company name (from the parent lead) and offering
-  // name (from the catalog) — everything the board, filters and detail need.
-  const allDeals = useMemo(
-    () =>
-      rawDeals.map((d) => ({
-        ...d,
-        company: leadsById[d.leadId]?.company || "—",
-        offeringName: findOffering(config, d.offeringId)?.name || "Offering",
-      })),
-    [rawDeals, leadsById, config]
-  );
+  // ---- Deal data + actions (shared hook; also used by the Lead Table) ------
+  const dealsApi = useDeals({ viewerId, isManager, focusIsDsc, config });
+  const { deals: allDeals, loading } = dealsApi;
 
   // ---- Scoping by focus (owner) --------------------------------------------
   const scopeUserId =
@@ -212,84 +177,39 @@ export default function PipelinePage() {
     let wonValue = 0;
     let pending = 0;
     for (const d of periodScoped) {
-      if (WON_DEAL_STATUSES.has(d.dealStatus)) {
+      if (CREDITED_DEAL_STATUSES.has(d.dealStatus)) {
         won += 1;
         wonValue += Number(d.closedAmount) || 0;
       } else if (!DEAD_DEAL_STATUSES.has(d.dealStatus)) {
-        openValue += Number(d.quotedAmount) || 0;
+        openValue += Number(d.closedAmount ?? d.quotedAmount) || 0;
       }
       if (d.approvalStatus === "pending") pending += 1;
     }
     return { total: periodScoped.length, openValue, won, wonValue, pending };
   }, [periodScoped]);
 
-  // ---- Edit permissions (by role + focus) — same model as the Lead Table ----
-  function canEditDeal(deal) {
-    if (!isManager) return deal?.ownerId === viewerId;
-    if (focusIsDsc) return false;
-    return deal?.ownerId === "" || deal?.ownerId === viewerId;
-  }
-  const canReassign = isManager && !focusIsDsc;
-
-  // Move a deal to a new stage. Moving from a non-won stage INTO a won stage is
-  // the money event: it doesn't set the status directly — it opens the win
-  // request so the Admin can approve. Everything else patches the deal.
-  function handleMove(dealId, status) {
-    const deal = allDeals.find((d) => d.dealId === dealId);
-    if (!deal || !canEditDeal(deal)) return; // enforce permission
-    if (deal.approvalStatus === "pending") return; // locked while pending
-    const enteringWon =
-      WON_DEAL_STATUSES.has(status) && !WON_DEAL_STATUSES.has(deal.dealStatus);
-    if (enteringWon) {
-      setWinDeal(deal);
-      return;
-    }
-    setRawDeals((rows) =>
-      rows.map((d) => (d.dealId === dealId ? { ...d, dealStatus: status } : d))
-    );
-    setDetailDeal((d) =>
-      d && d.dealId === dealId ? { ...d, dealStatus: status } : d
-    );
-    updateDeal(dealId, { dealStatus: status }).catch((e) => console.error(e));
-  }
-
-  // The win request → the deal goes "pending" until the Admin approves on the
-  // Approvals screen (which sets dealStatus "Won" + wonApprovedDate).
-  function submitDealWin(payload) {
-    const dealId = winDeal?.dealId;
-    if (!dealId) return;
-    const patch = {
-      approvalStatus: "pending",
-      approvalRequest: payload,
-      approvalReason: "",
-    };
-    setRawDeals((rows) =>
-      rows.map((d) => (d.dealId === dealId ? { ...d, ...patch } : d))
-    );
-    setDetailDeal((d) => (d && d.dealId === dealId ? { ...d, ...patch } : d));
-    requestDealWin(dealId, payload)
-      .then(() => reloadDeals())
-      .catch((e) => console.error(e));
-    setWinDeal(null);
-  }
-
-  // A deal can be sent for a win when the viewer owns/manages it, it isn't
-  // already won, and there's no pending request.
-  function canRequestWin(deal) {
-    return (
-      !!deal &&
-      canEditDeal(deal) &&
-      !WON_DEAL_STATUSES.has(deal.dealStatus) &&
-      !DEAD_DEAL_STATUSES.has(deal.dealStatus) &&
-      deal.approvalStatus !== "pending"
-    );
-  }
+  // Move / edit / approval logic all live in the useDeals hook so the Pipeline
+  // and the Lead Table's Deals view behave identically.
+  const {
+    canEditDeal,
+    canEditAmounts,
+    canRequestWin,
+    detailDeal,
+    setDetailDeal,
+    moveDeal,
+    editDeal,
+    winDeal,
+    winToStatus,
+    openWinRequest,
+    submitWinRequest,
+    closeWinRequest,
+  } = dealsApi;
 
   const subtitle = focusIsDsc
     ? `Viewing ${focusDsc.name}'s deals (read-only)`
     : effFocus === "self"
       ? `${viewer?.name}'s deals`
-      : "Drag a deal between stages — winning a deal needs Admin approval";
+      : "Drag a deal between stages — starting a project needs Admin approval";
 
   return (
     <div className="flex h-full flex-col">
@@ -358,7 +278,7 @@ export default function PipelinePage() {
             deals={filtered}
             statuses={visibleStatuses}
             moveOptions={DEAL_STATUSES}
-            onMove={handleMove}
+            onMove={moveDeal}
             onOpen={setDetailDeal}
             canEdit={canEditDeal}
           />
@@ -368,20 +288,23 @@ export default function PipelinePage() {
       <DealDetailSidebar
         deal={detailDeal}
         config={config}
-        canEditStatus={detailDeal ? canEditDeal(detailDeal) : false}
-        canRequestWin={detailDeal ? canRequestWin(detailDeal) : false}
-        onChangeStatus={handleMove}
-        onRequestWin={(deal) => setWinDeal(deal)}
+        canEditStatus={canEditDeal(detailDeal)}
+        canEditAmounts={canEditAmounts(detailDeal)}
+        canRequestWin={canRequestWin(detailDeal)}
+        onChangeStatus={moveDeal}
+        onChangeField={editDeal}
+        onRequestWin={(deal) => openWinRequest(deal, "Project Started")}
         onClose={() => setDetailDeal(null)}
       />
 
       <DealWinRequestModal
         open={!!winDeal}
         deal={winDeal}
+        toStatus={winToStatus}
         requestedBy={viewerId}
         today={monthKeyOf() + "-15"}
-        onSubmit={submitDealWin}
-        onClose={() => setWinDeal(null)}
+        onSubmit={submitWinRequest}
+        onClose={closeWinRequest}
       />
     </div>
   );

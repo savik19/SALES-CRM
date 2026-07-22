@@ -12,7 +12,8 @@ const inputClass =
 
 export default function DealWinRequestModal({
   open,
-  deal, // the deal being won (with offeringName + company enriched)
+  deal, // the deal being advanced (with offeringName + company enriched)
+  toStatus = "Project Started", // the gated stage requested
   requestedBy,
   today,
   onSubmit,
@@ -64,16 +65,17 @@ export default function DealWinRequestModal({
         className="relative w-full max-w-md rounded-xl bg-white shadow-xl"
         role="dialog"
         aria-modal="true"
-        aria-label="Request to win the deal"
+        aria-label="Request approval to start the project"
       >
         <div className="border-b border-slate-200 px-6 py-4">
           <h2 className="text-base font-semibold text-slate-900">
-            Win deal — request approval
+            Start project — request approval
           </h2>
           <p className="mt-0.5 text-xs text-slate-500">
-            {deal.company} · {deal.offeringName}. Sends a request to the Admin;
-            the deal is credited as <span className="font-medium">Won</span>{" "}
-            only once approved.
+            {deal.company} · {deal.offeringName}. Fill the finalized amount and
+            send to the Admin; the deal moves to{" "}
+            <span className="font-medium">{toStatus}</span> and is credited only
+            once approved.
           </p>
         </div>
 

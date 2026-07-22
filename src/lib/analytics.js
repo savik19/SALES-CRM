@@ -5,7 +5,7 @@
 // through to what the DSC/BDM analytics show.
 // ---------------------------------------------------------------------------
 
-import { LEAD_STATUSES, WON_DEAL_STATUSES } from "@/data/mockLeads";
+import { LEAD_STATUSES, CREDITED_DEAL_STATUSES } from "@/data/mockLeads";
 import { monthsSince, inMonth, isoInRange } from "@/lib/format";
 import { singleDealCommission, commissionStatus } from "@/lib/commission";
 
@@ -56,18 +56,21 @@ function isDealDead(status) {
   return status === "Lost" || status === "Cancelled";
 }
 
-// A deal counts as won in month `ym` when it's in a won stage and was approved
-// (wonApprovedDate) in that month. The approval date is the money event.
+// A deal counts as won in month `ym` when it's CREDITED (Admin-approved: a gated
+// stage carrying a wonApprovedDate) and that approval date falls in the month.
+// A deal merely marked "Won" (client agreed, not yet approved) does NOT count.
 export function dealWonInMonth(deal, ym) {
   return (
-    WON_DEAL_STATUSES.has(deal.dealStatus) && inMonth(deal.wonApprovedDate, ym)
+    CREDITED_DEAL_STATUSES.has(deal.dealStatus) &&
+    inMonth(deal.wonApprovedDate, ym)
   );
 }
 
 // Money metrics for a set of deals, scoped to month `ym`:
-//   dealsWon    — deals won (approved) in the month
-//   wonValue    — Σ closedAmount of those won deals
-//   openValue   — Σ quotedAmount of currently-open deals (snapshot, not won/dead)
+//   dealsWon    — deals credited (approved) in the month
+//   wonValue    — Σ closedAmount of those credited deals
+//   openValue   — Σ value of currently-open deals (snapshot; not credited/dead,
+//                 includes "Won" deals awaiting approval — finalized if known)
 //   dealsCreated— deals created in the month
 export function dealMetrics(deals, ym) {
   let dealsWon = 0;
@@ -80,10 +83,10 @@ export function dealMetrics(deals, ym) {
       dealsWon += 1;
       wonValue += Number(d.closedAmount) || 0;
     } else if (
-      !WON_DEAL_STATUSES.has(d.dealStatus) &&
+      !CREDITED_DEAL_STATUSES.has(d.dealStatus) &&
       !isDealDead(d.dealStatus)
     ) {
-      openValue += Number(d.quotedAmount) || 0;
+      openValue += Number(d.closedAmount ?? d.quotedAmount) || 0;
     }
   }
   return { dealsWon, wonValue, openValue, dealsCreated };

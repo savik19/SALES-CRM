@@ -9,11 +9,11 @@ import { dscName } from "@/data/mockLeads";
 import { findOffering, singleDealCommission } from "@/lib/commission";
 import { formatINR, formatDate, discountPctLabel } from "@/lib/format";
 
-// Approvals (Admin). A DSC's request to WIN a deal lands here; the Admin reviews
-// the financials and Approves or Rejects. Approving credits the win (sets the
-// deal to "Won" + stamps wonApprovedDate) so it counts toward the DSC's target
-// and commission; Rejecting returns it with a reason to revise. One deal = one
-// offering, so each request is a single offering priced on its closed amount.
+// Approvals (Admin). A DSC's request to start a project on a deal lands here,
+// grouped UNDER ITS LEAD so the Admin sees the prospect first, then every deal
+// awaiting a decision — with pricing + commission. Approving credits the deal
+// (moves it to Project Started + stamps wonApprovedDate) so it counts toward the
+// DSC's target + commission; Rejecting returns it with a reason to revise.
 const ADMIN_ID = "u-admin"; // demo decider; real auth supplies the logged-in Admin
 
 function money(n) {
@@ -49,6 +49,21 @@ export default function ApprovalsPage() {
     () => deals.filter((d) => d.approvalStatus === "pending"),
     [deals]
   );
+
+  // Group the pending deals under their lead (prospect), newest-requested first.
+  const pendingByLead = useMemo(() => {
+    const groups = new Map();
+    for (const d of pending) {
+      if (!groups.has(d.leadId)) groups.set(d.leadId, []);
+      groups.get(d.leadId).push(d);
+    }
+    return [...groups.entries()].map(([leadId, ds]) => ({
+      leadId,
+      company: leadsById[leadId]?.company || ds[0].companyId || "—",
+      deals: ds,
+    }));
+  }, [pending, leadsById]);
+
   const decided = useMemo(
     () =>
       deals
@@ -65,9 +80,6 @@ export default function ApprovalsPage() {
     [deals]
   );
 
-  function companyOf(deal) {
-    return leadsById[deal.leadId]?.company || deal.companyId || "—";
-  }
   function offeringName(id) {
     return findOffering(config, id)?.name || "Unknown offering";
   }
@@ -94,139 +106,179 @@ export default function ApprovalsPage() {
     <div className="flex h-full flex-col">
       <Topbar
         title="Approvals"
-        subtitle="Admin — review deal-win requests. Approving credits the won deal to the DSC."
+        subtitle="Admin — review deal requests to start a project. Approving credits the deal to the DSC."
       />
 
       <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
-        {/* Pending */}
+        {/* Pending — grouped by lead */}
         <section>
-          <h3 className="mb-2 text-sm font-semibold text-slate-800">
-            Pending{" "}
-            <span className="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
-              {pending.length}
+          <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-800">
+            Pending
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+              {pending.length} deal{pending.length === 1 ? "" : "s"}
             </span>
+            {pendingByLead.length ? (
+              <span className="text-xs font-normal text-slate-400">
+                across {pendingByLead.length} lead
+                {pendingByLead.length === 1 ? "" : "s"}
+              </span>
+            ) : null}
           </h3>
 
           {loading ? (
             <p className="py-10 text-center text-sm text-slate-500">Loading…</p>
           ) : pending.length === 0 ? (
             <p className="rounded-lg border border-dashed border-slate-200 py-10 text-center text-sm text-slate-400">
-              No pending approvals. New win requests from DSCs appear here.
+              No pending approvals. New requests from DSCs appear here.
             </p>
           ) : (
-            <div className="space-y-3">
-              {pending.map((deal) => {
-                const req = deal.approvalRequest || {};
-                // Commission preview on the requested closed amount (not yet
-                // applied to the deal until it's approved).
-                const preview = {
-                  offeringId: deal.offeringId,
-                  closedAmount: req.closedAmount ?? deal.closedAmount,
-                };
-                const dscComm = singleDealCommission(preview, config, "dsc");
-                const bdmComm = singleDealCommission(preview, config, "bdm");
-                return (
-                  <div
-                    key={deal.dealId}
-                    className="rounded-xl border border-slate-200 bg-white p-4"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold text-slate-900">
-                            {companyOf(deal)}
-                          </span>
-                          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-600">
-                            {offeringName(deal.offeringId)}
-                          </span>
-                          <span className="font-mono text-xs text-slate-400">
-                            {deal.dealId}
-                          </span>
-                        </div>
-                        <div className="mt-0.5 text-xs text-slate-500">
-                          Requested by{" "}
-                          <span className="font-medium text-slate-700">
-                            {dscName(req.requestedBy || deal.ownerId)}
-                          </span>{" "}
-                          · {formatDate(req.requestedDate)}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => accept(deal)}
-                          className="rounded-lg bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setRejectingId(deal.dealId);
-                            setReason("");
-                          }}
-                          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                        >
-                          Reject
-                        </button>
-                      </div>
+            <div className="space-y-4">
+              {pendingByLead.map((group) => (
+                <div
+                  key={group.leadId}
+                  className="overflow-hidden rounded-xl border border-slate-200 bg-white"
+                >
+                  {/* Lead header */}
+                  <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-slate-900">
+                        {group.company}
+                      </span>
+                      <span className="font-mono text-xs text-slate-400">
+                        {group.leadId}
+                      </span>
                     </div>
-
-                    <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                      <Figure label="Quoted" value={money(req.quotedAmount)} />
-                      <Figure label="Closed" value={money(req.closedAmount)} />
-                      <Figure
-                        label="Discount"
-                        value={discountPctLabel({
-                          quotedAmount: req.quotedAmount,
-                          closedAmount: req.closedAmount,
-                        })}
-                      />
-                      <Figure
-                        label="Commission (DSC / BDM)"
-                        value={`${money(dscComm)} / ${money(bdmComm)}`}
-                      />
-                    </div>
-
-                    {req.note ? (
-                      <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                        “{req.note}”
-                      </p>
-                    ) : null}
-
-                    {rejectingId === deal.dealId ? (
-                      <div className="mt-3 rounded-lg border border-slate-200 p-3">
-                        <label className="mb-1 block text-xs font-medium text-slate-600">
-                          Reason for rejection
-                        </label>
-                        <textarea
-                          rows={2}
-                          value={reason}
-                          onChange={(e) => setReason(e.target.value)}
-                          className="w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
-                          placeholder="Why is this being sent back?"
-                        />
-                        <div className="mt-2 flex justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setRejectingId(null)}
-                            className="rounded-lg border border-slate-300 px-3 py-1 text-sm text-slate-700 hover:bg-slate-50"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => confirmReject(deal)}
-                            className="rounded-lg bg-red-600 px-3 py-1 text-sm font-medium text-white hover:bg-red-700"
-                          >
-                            Confirm reject
-                          </button>
-                        </div>
-                      </div>
-                    ) : null}
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                      {group.deals.length} pending
+                    </span>
                   </div>
-                );
-              })}
+
+                  {/* Each pending deal under this lead */}
+                  <div className="divide-y divide-slate-100">
+                    {group.deals.map((deal) => {
+                      const req = deal.approvalRequest || {};
+                      const preview = {
+                        offeringId: deal.offeringId,
+                        closedAmount: req.closedAmount ?? deal.closedAmount,
+                      };
+                      const dscComm = singleDealCommission(
+                        preview,
+                        config,
+                        "dsc"
+                      );
+                      const bdmComm = singleDealCommission(
+                        preview,
+                        config,
+                        "bdm"
+                      );
+                      return (
+                        <div key={deal.dealId} className="px-4 py-3">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium text-slate-800">
+                                  {offeringName(deal.offeringId)}
+                                </span>
+                                <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-600">
+                                  → {req.requestedStatus || "Project Started"}
+                                </span>
+                                <span className="font-mono text-xs text-slate-400">
+                                  {deal.dealId}
+                                </span>
+                              </div>
+                              <div className="mt-0.5 text-xs text-slate-500">
+                                Requested by{" "}
+                                <span className="font-medium text-slate-700">
+                                  {dscName(req.requestedBy || deal.ownerId)}
+                                </span>{" "}
+                                · {formatDate(req.requestedDate)}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => accept(deal)}
+                                className="rounded-lg bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700"
+                              >
+                                Approve
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setRejectingId(deal.dealId);
+                                  setReason("");
+                                }}
+                                className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                            <Figure
+                              label="Pitched"
+                              value={money(req.quotedAmount)}
+                            />
+                            <Figure
+                              label="Finalized"
+                              value={money(req.closedAmount)}
+                            />
+                            <Figure
+                              label="Discount"
+                              value={discountPctLabel({
+                                quotedAmount: req.quotedAmount,
+                                closedAmount: req.closedAmount,
+                              })}
+                            />
+                            <Figure
+                              label="Commission (DSC / BDM)"
+                              value={`${money(dscComm)} / ${money(bdmComm)}`}
+                            />
+                          </div>
+
+                          {req.note ? (
+                            <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                              “{req.note}”
+                            </p>
+                          ) : null}
+
+                          {rejectingId === deal.dealId ? (
+                            <div className="mt-3 rounded-lg border border-slate-200 p-3">
+                              <label className="mb-1 block text-xs font-medium text-slate-600">
+                                Reason for rejection
+                              </label>
+                              <textarea
+                                rows={2}
+                                value={reason}
+                                onChange={(e) => setReason(e.target.value)}
+                                className="w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+                                placeholder="Why is this being sent back?"
+                              />
+                              <div className="mt-2 flex justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setRejectingId(null)}
+                                  className="rounded-lg border border-slate-300 px-3 py-1 text-sm text-slate-700 hover:bg-slate-50"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => confirmReject(deal)}
+                                  className="rounded-lg bg-red-600 px-3 py-1 text-sm font-medium text-white hover:bg-red-700"
+                                >
+                                  Confirm reject
+                                </button>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </section>
@@ -252,7 +304,9 @@ export default function ApprovalsPage() {
                   {decided.map((deal) => (
                     <tr key={deal.dealId} className="border-t border-slate-100">
                       <td className="px-4 py-2 font-medium text-slate-800">
-                        {companyOf(deal)}
+                        {leadsById[deal.leadId]?.company ||
+                          deal.companyId ||
+                          "—"}
                       </td>
                       <td className="px-4 py-2 text-slate-600">
                         {offeringName(deal.offeringId)}

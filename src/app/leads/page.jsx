@@ -4,15 +4,20 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Topbar from "@/components/layout/Topbar";
 import LeadToolbar from "@/components/leads/LeadToolbar";
 import LeadTable from "@/components/leads/LeadTable";
-import ExpandedLeadRow from "@/components/leads/ExpandedLeadRow";
+import LeadDealsPanel from "@/components/leads/LeadDealsPanel";
 import LeadDetailSidebar from "@/components/leads/LeadDetailSidebar";
 import RoleSwitcher from "@/components/leads/RoleSwitcher";
 import BulkAssignBar from "@/components/leads/BulkAssignBar";
 import ImportModal from "@/components/leads/ImportModal";
-import WinRequestModal from "@/components/leads/WinRequestModal";
+import CreateDealModal from "@/components/leads/CreateDealModal";
+import DealTable from "@/components/deals/DealTable";
+import DealFilters from "@/components/deals/DealFilters";
+import DealDetailSidebar from "@/components/pipeline/DealDetailSidebar";
+import DealWinRequestModal from "@/components/pipeline/DealWinRequestModal";
 import AnalyticsPanel from "@/components/analytics/AnalyticsPanel";
 import { useCompConfig } from "@/lib/compConfig";
-import { personAnalytics, teamAnalytics, isActive } from "@/lib/analytics";
+import { personAnalytics, teamAnalytics } from "@/lib/analytics";
+import { useDeals } from "@/lib/useDeals";
 import { greetingFor, thoughtOfTheDay } from "@/lib/greeting";
 import {
   allKeys,
@@ -23,10 +28,8 @@ import {
 } from "@/components/leads/columns";
 import { useColumnConfig } from "@/lib/columnConfig";
 import { useActiveDscs, useUsers } from "@/lib/usersConfig";
-import { getLeads, updateLead, assignLeads, requestWin } from "@/lib/leadsApi";
-import { getDeals, createDeal } from "@/lib/dealsApi";
-import { findOffering } from "@/lib/commission";
-import CreateDealModal from "@/components/leads/CreateDealModal";
+import { getLeads, updateLead, assignLeads } from "@/lib/leadsApi";
+import { createDeal } from "@/lib/dealsApi";
 import {
   discountPct,
   recentMonths,
@@ -35,6 +38,7 @@ import {
 } from "@/lib/format";
 import {
   LEAD_STATUSES,
+  DEAL_STATUSES,
   PRIORITIES,
   INDUSTRIES,
   LEAD_SOURCES,
@@ -51,7 +55,14 @@ const EMPTY_FILTERS = {
   leadSource: [],
 };
 
-const PAGE_SIZE = 20; // rows per page in the lead table
+const EMPTY_DEAL_FILTERS = {
+  dealStatus: [],
+  ownerId: [],
+  offeringKind: [],
+  approvalStatus: [],
+};
+
+const PAGE_SIZE = 20; // rows per page in either table
 
 // ---- Sorting ---------------------------------------------------------------
 function compareNumbers(a, b, factor) {
@@ -61,6 +72,22 @@ function compareNumbers(a, b, factor) {
   if (an === null) return 1;
   if (bn === null) return -1;
   return (an - bn) * factor;
+}
+
+function compareText(a, b, factor) {
+  const av = (a ?? "").toString().toLowerCase();
+  const bv = (b ?? "").toString().toLowerCase();
+  if (av === bv) return 0;
+  if (!av) return 1;
+  if (!bv) return -1;
+  return av < bv ? -1 * factor : 1 * factor;
+}
+
+function compareDate(a, b, factor) {
+  if (!a && !b) return 0;
+  if (!a) return 1;
+  if (!b) return -1;
+  return (a < b ? -1 : a > b ? 1 : 0) * factor;
 }
 
 function compareLeads(a, b, column, dir) {
@@ -93,28 +120,40 @@ function compareLeads(a, b, column, dir) {
       return compareNumbers(a[key], b[key], factor);
     case "discount":
       return compareNumbers(discountPct(a), discountPct(b), factor);
-    case "date": {
-      const av = a[key];
-      const bv = b[key];
-      if (!av && !bv) return 0;
-      if (!av) return 1;
-      if (!bv) return -1;
-      return (av < bv ? -1 : av > bv ? 1 : 0) * factor;
-    }
-    default: {
-      const av = (a[key] ?? "").toString().toLowerCase();
-      const bv = (b[key] ?? "").toString().toLowerCase();
-      if (av === bv) return 0;
-      if (!av) return 1;
-      if (!bv) return -1;
-      return av < bv ? -1 * factor : 1 * factor;
-    }
+    case "date":
+      return compareDate(a[key], b[key], factor);
+    default:
+      return compareText(a[key], b[key], factor);
   }
 }
 
-// ---- Follow-up date range (calendar filter) --------------------------------
-// True when `iso` (a lead's follow-up date) is within [from, to] inclusive.
-// Both empty = no filter (all leads). A single day = from == to.
+// Sort two deals by a DealTable column key (deal-native fields).
+function compareDeals(a, b, key, dir) {
+  const factor = dir === "asc" ? 1 : -1;
+  switch (key) {
+    case "quotedAmount":
+    case "closedAmount":
+      return compareNumbers(a[key], b[key], factor);
+    case "discount":
+      return compareNumbers(discountPct(a), discountPct(b), factor);
+    case "createdDate":
+      return compareDate(a.createdDate, b.createdDate, factor);
+    case "dealStatus":
+      return (
+        (DEAL_STATUSES.indexOf(a.dealStatus) -
+          DEAL_STATUSES.indexOf(b.dealStatus)) *
+        factor
+      );
+    case "ownerId":
+      return dscName(a.ownerId).localeCompare(dscName(b.ownerId)) * factor;
+    case "approval":
+      return compareText(a.approvalStatus, b.approvalStatus, factor);
+    default:
+      return compareText(a[key], b[key], factor);
+  }
+}
+
+// True when `iso` is within [from, to] inclusive; empty bounds = no filter.
 function inDateRange(iso, from, to) {
   if (!from && !to) return true;
   return isoInRange(iso, from, to);
@@ -124,25 +163,23 @@ export default function LeadsPage() {
   // ---- Team (managed by Admin in User Management) --------------------------
   const dscs = useActiveDscs();
   const { users } = useUsers();
+  const { config } = useCompConfig();
 
   // ---- Role (demo switcher; real auth replaces this) -----------------------
   const [viewerId, setViewerId] = useState("u-prakhar");
   const viewer = users.find((u) => u.id === viewerId) || USER_BY_ID[viewerId];
   const isAdmin = viewer?.role === "admin";
   const isBDM = viewer?.role === "bdm";
-  // Admin and BDM both see the whole team + can import / (bulk-)assign.
   const isManager = isBDM || isAdmin;
 
+  // ---- View: prospect leads, or the flat deals table -----------------------
+  const [view, setView] = useState("leads"); // "leads" | "deals"
+
   // ---- Manager focus: "team" | "self" (BDM's own) | a DSC id ----------------
-  // A manager can focus the whole screen (analytics + leads) on the team, their
-  // own leads, or one DSC. Focusing a DSC is view-only (see permission model).
   const [focus, setFocus] = useState("team");
   useEffect(() => {
-    // Reset focus when the viewer changes: BDM lands on their own leads, Admin
-    // on the whole team.
     setFocus(viewer?.role === "bdm" ? "self" : "team");
   }, [viewerId, viewer?.role]);
-  // Focus only applies to managers; a DSC always sees their own leads.
   const effFocus = isManager ? focus : "self";
   const focusDsc =
     effFocus !== "team" && effFocus !== "self"
@@ -150,17 +187,13 @@ export default function LeadsPage() {
       : null;
   const focusIsDsc = !!focusDsc;
 
-  // If the focused DSC is deactivated (drops out of the active list), fall back
-  // to the team view instead of silently showing the manager's own leads.
   useEffect(() => {
     if (isManager && focus !== "team" && focus !== "self" && !focusDsc) {
       setFocus("team");
     }
   }, [isManager, focus, focusDsc]);
 
-  const { config } = useCompConfig();
   const [showAnalytics, setShowAnalytics] = useState(true);
-  // Month filter for the analytics (default = current month; last 6 selectable).
   const monthOptions = useMemo(() => recentMonths(6), []);
   const [analyticsMonth, setAnalyticsMonth] = useState(() => monthKeyOf());
 
@@ -172,18 +205,14 @@ export default function LeadsPage() {
   const groups = useMemo(() => groupsOf(columns), [columns]);
   const colByKey = useMemo(() => byKey(columns), [columns]);
 
-  // ---- Data (working set the page owns; import/assign/edit mutate it) -------
+  // ---- Lead data (the page owns it; import/assign/edit mutate it) ----------
   const [allLeads, setAllLeads] = useState([]);
   const [loading, setLoading] = useState(true);
-
-  const [deals, setDeals] = useState([]); // all deals (Lead → Deal model)
-
   useEffect(() => {
     let active = true;
-    Promise.all([getLeads(), getDeals()]).then(([rows, dealRows]) => {
+    getLeads().then((rows) => {
       if (active) {
         setAllLeads(rows);
-        setDeals(dealRows);
         setLoading(false);
       }
     });
@@ -192,49 +221,47 @@ export default function LeadsPage() {
     };
   }, []);
 
-  function reloadDeals() {
-    getDeals().then(setDeals);
-  }
+  // ---- Deal data + actions (shared hook; also used by the Pipeline) --------
+  const dealsApi = useDeals({ viewerId, isManager, focusIsDsc, config });
+  const deals = dealsApi.deals;
 
-  // ---- Controls ------------------------------------------------------------
+  // ---- Lead controls -------------------------------------------------------
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState(EMPTY_FILTERS);
-  const [dateFrom, setDateFrom] = useState(""); // follow-up range (calendar)
+  const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [sort, setSort] = useState({ key: null, dir: null });
-  // All columns are visible by default.
   const [visibleCols, setVisibleCols] = useState(() => new Set(colKeys));
   const [widths, setWidths] = useState({});
   const [expandedId, setExpandedId] = useState(null);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [importOpen, setImportOpen] = useState(false);
   const [detailLead, setDetailLead] = useState(null);
-  const [winRequestLead, setWinRequestLead] = useState(null);
   const [createDealLead, setCreateDealLead] = useState(null);
-  // Pagination — keeps the table a bounded height so it stays usable under the
-  // analytics panel.
   const [page, setPage] = useState(1);
 
-  // Reconcile the visible set when columns are added/removed in the config:
-  // brand-new columns show by default; removed columns drop out. Deselections
-  // the user made are preserved.
+  // ---- Deal-view controls --------------------------------------------------
+  const [dealSearch, setDealSearch] = useState("");
+  const [dealFilters, setDealFilters] = useState(EMPTY_DEAL_FILTERS);
+  const [dealSort, setDealSort] = useState({ key: null, dir: null });
+  const [dealPage, setDealPage] = useState(1);
+
+  // Reconcile the visible column set when columns are added/removed.
   const seenKeysRef = useRef(new Set(colKeys));
   useEffect(() => {
     setVisibleCols((prev) => {
       const next = new Set(prev);
       for (const k of colKeys) {
-        if (!seenKeysRef.current.has(k)) next.add(k); // new column
+        if (!seenKeysRef.current.has(k)) next.add(k);
       }
       for (const k of [...next]) {
-        if (!colKeys.includes(k)) next.delete(k); // removed column
+        if (!colKeys.includes(k)) next.delete(k);
       }
       seenKeysRef.current = new Set(colKeys);
       return next;
     });
   }, [colKeys]);
 
-  // If the current demo viewer gets deactivated in User Management, fall back to
-  // the first person who can still log in (mirrors losing portal access).
   useEffect(() => {
     const active = users.filter((u) => u.status !== "deactivated");
     if (active.length && !active.some((u) => u.id === viewerId)) {
@@ -242,20 +269,18 @@ export default function LeadsPage() {
     }
   }, [users, viewerId]);
 
-  // Reset selection/expansion when the viewer (role) changes.
   useEffect(() => {
     setSelectedIds(new Set());
     setExpandedId(null);
   }, [viewerId, isManager]);
 
-  // The DSC filter only shows in team focus. Drop any DSC selection when it's
-  // hidden (a DSC viewer, or a manager focused on self / a single DSC), so it
-  // can't silently narrow the table with no visible control or chip to clear it.
+  // The DSC/Owner filters only show in team focus. Drop them when hidden.
   useEffect(() => {
     if (effFocus !== "team") {
       setFilters((f) =>
         f.assignedDscId.length ? { ...f, assignedDscId: [] } : f
       );
+      setDealFilters((f) => (f.ownerId.length ? { ...f, ownerId: [] } : f));
     }
   }, [effFocus]);
 
@@ -277,16 +302,39 @@ export default function LeadsPage() {
   function handleResize(key, w) {
     setWidths((prev) => ({ ...prev, [key]: w }));
   }
+  function handleDealFilterChange(key, values) {
+    setDealFilters((f) => ({ ...f, [key]: values }));
+  }
+  function clearDealFilters() {
+    setDealFilters(EMPTY_DEAL_FILTERS);
+    setDealSearch("");
+  }
+  function handleDealSort(key) {
+    setDealSort((s) => {
+      if (s.key !== key) return { key, dir: "asc" };
+      if (s.dir === "asc") return { key, dir: "desc" };
+      return { key: null, dir: null };
+    });
+  }
 
   // ---- Scoping by focus ----------------------------------------------------
-  // Which leads the screen shows, and whose analytics: the whole team, the
-  // manager's own leads ("self"), or one DSC's leads.
   const scopeUserId =
     effFocus === "team" ? null : focusIsDsc ? effFocus : viewerId;
   const roleScoped = useMemo(() => {
-    if (effFocus === "team") return allLeads; // manager, whole team
+    if (effFocus === "team") return allLeads;
     return allLeads.filter((l) => l.assignedDscId === scopeUserId);
   }, [allLeads, effFocus, scopeUserId]);
+  const roleScopedDeals = useMemo(() => {
+    if (effFocus === "team") return deals;
+    return deals.filter((d) => d.ownerId === scopeUserId);
+  }, [deals, effFocus, scopeUserId]);
+
+  // Deals grouped by lead id — for the lead-view row expansion.
+  const dealsByLead = useMemo(() => {
+    const map = {};
+    for (const d of deals) (map[d.leadId] ||= []).push(d);
+    return map;
+  }, [deals]);
 
   // Analytics for the current focus, scoped to the selected month.
   const analytics = useMemo(() => {
@@ -321,7 +369,6 @@ export default function LeadsPage() {
         ),
       };
     }
-    // "self" — the viewer's own leads/deals (DSC, or a BDM viewing "My leads").
     return {
       variant: "dsc",
       name: viewer.name,
@@ -358,7 +405,6 @@ export default function LeadsPage() {
     priority: PRIORITIES,
     industry: INDUSTRIES,
     city: cityOptions,
-    // "Unassigned" first so the BDM can find freshly imported leads.
     assignedDscId: [
       { value: "", label: "Unassigned" },
       ...dscs.map((d) => ({ value: d.id, label: d.name })),
@@ -366,12 +412,22 @@ export default function LeadsPage() {
     leadSource: LEAD_SOURCES,
   };
 
+  const dealFilterOptions = {
+    dealStatus: DEAL_STATUSES,
+    ownerId: [
+      { value: "", label: "Unassigned" },
+      ...dscs.map((d) => ({ value: d.id, label: d.name })),
+    ],
+    offeringKind: ["service", "product"],
+    approvalStatus: ["pending", "approved", "rejected"],
+  };
+
   const visibleColumns = useMemo(
     () => columns.filter((c) => visibleCols.has(c.key)),
     [columns, visibleCols]
   );
 
-  // ---- Search + filter + sort ----------------------------------------------
+  // ---- Lead search + filter + sort -----------------------------------------
   const visibleLeads = useMemo(() => {
     const q = search.trim().toLowerCase();
     let rows = roleScoped.filter((lead) => {
@@ -394,7 +450,6 @@ export default function LeadsPage() {
       if (col)
         rows = [...rows].sort((a, b) => compareLeads(a, b, col, sort.dir));
     } else {
-      // Default: newest-assigned leads on top.
       rows = [...rows].sort((a, b) =>
         (b.assignedDate || "").localeCompare(a.assignedDate || "")
       );
@@ -411,7 +466,47 @@ export default function LeadsPage() {
     colByKey,
   ]);
 
-  // ---- Pagination ----------------------------------------------------------
+  // ---- Deal search + filter + sort -----------------------------------------
+  const visibleDeals = useMemo(() => {
+    const q = dealSearch.trim().toLowerCase();
+    let rows = roleScopedDeals.filter((d) => {
+      if (
+        dealFilters.dealStatus.length &&
+        !dealFilters.dealStatus.includes(d.dealStatus)
+      )
+        return false;
+      if (
+        dealFilters.ownerId.length &&
+        !dealFilters.ownerId.includes(d.ownerId)
+      )
+        return false;
+      if (
+        dealFilters.offeringKind.length &&
+        !dealFilters.offeringKind.includes(d.offeringKind)
+      )
+        return false;
+      if (
+        dealFilters.approvalStatus.length &&
+        !dealFilters.approvalStatus.includes(d.approvalStatus)
+      )
+        return false;
+      if (q && !`${d.company} ${d.offeringName}`.toLowerCase().includes(q))
+        return false;
+      return true;
+    });
+    if (dealSort.key) {
+      rows = [...rows].sort((a, b) =>
+        compareDeals(a, b, dealSort.key, dealSort.dir)
+      );
+    } else {
+      rows = [...rows].sort((a, b) =>
+        (b.createdDate || "").localeCompare(a.createdDate || "")
+      );
+    }
+    return rows;
+  }, [roleScopedDeals, dealSearch, dealFilters, dealSort]);
+
+  // ---- Pagination (per view) -----------------------------------------------
   const pageCount = Math.max(1, Math.ceil(visibleLeads.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
   const pagedLeads = useMemo(
@@ -422,21 +517,27 @@ export default function LeadsPage() {
       ),
     [visibleLeads, currentPage]
   );
-  // Back to page 1 whenever the result set changes.
+  const dealPageCount = Math.max(1, Math.ceil(visibleDeals.length / PAGE_SIZE));
+  const currentDealPage = Math.min(dealPage, dealPageCount);
+  const pagedDeals = useMemo(
+    () =>
+      visibleDeals.slice(
+        (currentDealPage - 1) * PAGE_SIZE,
+        currentDealPage * PAGE_SIZE
+      ),
+    [visibleDeals, currentDealPage]
+  );
   useEffect(() => {
     setPage(1);
   }, [search, filters, dateFrom, dateTo, sort, viewerId, effFocus]);
+  useEffect(() => {
+    setDealPage(1);
+  }, [dealSearch, dealFilters, dealSort, viewerId, effFocus]);
 
   // ---- Lead edit permissions (by role + focus) -----------------------------
-  // Who may edit a lead's FIELDS (not the assignee):
-  //   - a DSC edits their own leads
-  //   - a manager (BDM/Admin) edits only UNASSIGNED leads or leads assigned to
-  //     THEMSELVES; a lead assigned to a DSC is view-only
-  //   - focusing on a DSC is always view-only
-  // Who may (re)assign a lead: a manager, when not focused on a specific DSC.
   function canEditLead(lead) {
-    if (!isManager) return lead?.assignedDscId === viewerId; // DSC: own leads
-    if (focusIsDsc) return false; // viewing a DSC's book — read-only
+    if (!isManager) return lead?.assignedDscId === viewerId;
+    if (focusIsDsc) return false;
     return lead?.assignedDscId === "" || lead?.assignedDscId === viewerId;
   }
   const canReassign = isManager && !focusIsDsc;
@@ -445,12 +546,18 @@ export default function LeadsPage() {
     ? (currentPage - 1) * PAGE_SIZE + 1
     : 0;
   const rangeEnd = Math.min(currentPage * PAGE_SIZE, visibleLeads.length);
+  const dealRangeStart = visibleDeals.length
+    ? (currentDealPage - 1) * PAGE_SIZE + 1
+    : 0;
+  const dealRangeEnd = Math.min(
+    currentDealPage * PAGE_SIZE,
+    visibleDeals.length
+  );
 
   // ---- Selection (BDM) -----------------------------------------------------
   const allSelected =
     visibleLeads.length > 0 &&
     visibleLeads.every((l) => selectedIds.has(l.leadId));
-
   function toggleSelect(id) {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -468,55 +575,35 @@ export default function LeadsPage() {
     });
   }
 
-  // ---- Mutations -----------------------------------------------------------
+  // ---- Lead mutations ------------------------------------------------------
   function handleFieldChange(leadId, patch) {
-    // Enforce the permission model (defense-in-depth; the UI also disables it):
-    // a reassignment (assignedDscId only) needs reassign rights; any other field
-    // edit needs edit rights on that lead.
     const lead = allLeads.find((l) => l.leadId === leadId);
     const keys = Object.keys(patch);
     const isReassignOnly = keys.length === 1 && keys[0] === "assignedDscId";
     if (isReassignOnly ? !canReassign : !canEditLead(lead)) return;
-
     setAllLeads((rows) =>
       rows.map((l) => (l.leadId === leadId ? { ...l, ...patch } : l))
     );
-    // Keep the open sidebar's controlled fields in sync with the edit.
     setDetailLead((d) => (d && d.leadId === leadId ? { ...d, ...patch } : d));
     updateLead(leadId, patch).catch((e) => console.error(e));
   }
 
-  // A close request: the owner submits line items + quoted; the deal goes to
-  // "pending" (not yet Project Started) until the Admin approves on /approvals.
-  function handleRequestWin(payload) {
-    const leadId = winRequestLead?.leadId;
-    if (!leadId) return;
-    const patch = {
-      approvalStatus: "pending",
-      approvalRequest: payload,
-      approvalReason: "",
-    };
+  function handleBulkAssign(dscId) {
+    const ids = [...selectedIds];
     setAllLeads((rows) =>
-      rows.map((l) => (l.leadId === leadId ? { ...l, ...patch } : l))
+      rows.map((l) =>
+        selectedIds.has(l.leadId) ? { ...l, assignedDscId: dscId } : l
+      )
     );
-    setDetailLead((d) => (d && d.leadId === leadId ? { ...d, ...patch } : d));
-    requestWin(leadId, payload).catch((e) => console.error(e));
-    setWinRequestLead(null);
+    assignLeads(ids, dscId).catch((e) => console.error(e));
+    setSelectedIds(new Set());
   }
 
-  // Who may raise a close request: whoever may edit the lead, when it's an active
-  // deal that isn't already pending/won.
-  function canRequestWin(lead) {
-    return (
-      !!lead &&
-      canEditLead(lead) &&
-      isActive(lead.leadStatus) &&
-      lead.approvalStatus !== "pending"
-    );
+  function handleImported(newLeads) {
+    setAllLeads((rows) => [...newLeads, ...rows]);
   }
 
-  // ---- Lead → Deal: interest + deals --------------------------------------
-  // Active catalog offerings the lead can be interested in / that a deal can be.
+  // ---- Lead → Deal: interest + deal creation -------------------------------
   const catalogOfferings = useMemo(
     () =>
       [...(config.services || []), ...(config.products || [])]
@@ -525,28 +612,16 @@ export default function LeadsPage() {
     [config]
   );
 
-  // The open lead's deals, enriched with the offering name for display.
-  const detailDeals = useMemo(() => {
-    if (!detailLead) return [];
-    return deals
-      .filter((d) => d.leadId === detailLead.leadId)
-      .map((d) => ({
-        ...d,
-        offeringName: findOffering(config, d.offeringId)?.name || "Offering",
-      }));
-  }, [deals, detailLead, config]);
-
-  // Managing interest / creating deals needs edit rights on the lead.
   const canManageDeals = detailLead ? canEditLead(detailLead) : false;
 
-  // Toggle an offering in the lead's interest list (non-binding).
-  function toggleInterest(offeringId) {
-    if (!detailLead || !canEditLead(detailLead)) return;
-    const current = detailLead.interestedOfferingIds || [];
+  // Toggle an offering in ANY lead's interest list (non-binding).
+  function toggleInterestFor(lead, offeringId) {
+    if (!lead || !canEditLead(lead)) return;
+    const current = lead.interestedOfferingIds || [];
     const next = current.includes(offeringId)
       ? current.filter((id) => id !== offeringId)
       : [...current, offeringId];
-    handleFieldChange(detailLead.leadId, { interestedOfferingIds: next });
+    handleFieldChange(lead.leadId, { interestedOfferingIds: next });
   }
 
   // Create one deal (one offering) under the lead from the modal.
@@ -564,32 +639,18 @@ export default function LeadsPage() {
       createdDate: monthKeyOf() + "-15",
       notes: note || "",
     })
-      .then(() => reloadDeals())
+      .then(() => dealsApi.reload())
       .catch((e) => console.error(e));
     setCreateDealLead(null);
   }
 
-  function handleBulkAssign(dscId) {
-    const ids = [...selectedIds];
-    setAllLeads((rows) =>
-      rows.map((l) =>
-        selectedIds.has(l.leadId) ? { ...l, assignedDscId: dscId } : l
-      )
-    );
-    assignLeads(ids, dscId).catch((e) => console.error(e));
-    setSelectedIds(new Set());
-  }
-
-  function handleImported(newLeads) {
-    // Prepend so freshly imported (New, unassigned) leads are visible up top.
-    setAllLeads((rows) => [...newLeads, ...rows]);
-  }
-
   const focusSubtitle = focusIsDsc
-    ? `Viewing ${focusDsc.name}'s leads (read-only)`
+    ? `Viewing ${focusDsc.name}'s ${view} (read-only)`
     : effFocus === "self"
-      ? `${viewer?.name}'s leads`
-      : "All leads across the team";
+      ? `${viewer?.name}'s ${view}`
+      : `All ${view} across the team`;
+
+  const leadsView = view === "leads";
 
   return (
     <div className="flex h-full flex-col">
@@ -621,9 +682,6 @@ export default function LeadsPage() {
         }
       />
 
-      {/* Single vertical scroll: greeting → performance → sticky toolbar →
-          table → pager. Scrolling reveals the full table even with the
-          performance panel open. */}
       <div className="flex-1 overflow-y-auto">
         {viewer ? (
           <div className="border-b border-slate-200 bg-white px-6 py-3">
@@ -655,41 +713,85 @@ export default function LeadsPage() {
         ) : null}
 
         <div className="sticky top-0 z-20 bg-white shadow-sm">
-          <LeadToolbar
-            search={search}
-            onSearch={setSearch}
-            count={visibleLeads.length}
-            total={roleScoped.length}
-            filters={filters}
-            onFilterChange={handleFilterChange}
-            dateFrom={dateFrom}
-            dateTo={dateTo}
-            onDateFrom={setDateFrom}
-            onDateTo={setDateTo}
-            onClearAll={clearAllFilters}
-            options={filterOptions}
-            visibleColumns={visibleCols}
-            onColumnsChange={setVisibleCols}
-            columnGroups={groups}
-            columnKeys={colKeys}
-            showDscFilter={isManager && effFocus === "team"}
-            canImport={isManager}
-            onImport={() => setImportOpen(true)}
-          />
-          {canReassign ? (
-            <BulkAssignBar
-              count={selectedIds.size}
-              onAssign={handleBulkAssign}
-              onClear={() => setSelectedIds(new Set())}
+          {/* Lead ⇄ Deal view switch */}
+          <div className="flex items-center gap-2 border-b border-slate-200 px-6 py-2">
+            <div className="inline-flex rounded-lg border border-slate-300 p-0.5">
+              {[
+                { key: "leads", label: "Leads" },
+                { key: "deals", label: "Deals" },
+              ].map((v) => (
+                <button
+                  key={v.key}
+                  type="button"
+                  onClick={() => setView(v.key)}
+                  className={`rounded-md px-3 py-1 text-sm font-medium transition-colors ${
+                    view === v.key
+                      ? "bg-brand text-white"
+                      : "text-slate-600 hover:bg-slate-100"
+                  }`}
+                >
+                  {v.label}
+                </button>
+              ))}
+            </div>
+            <span className="text-xs text-slate-400">
+              {leadsView
+                ? "Prospects — expand a row to see its deals"
+                : "Every deal (one offering each) with its status"}
+            </span>
+          </div>
+
+          {leadsView ? (
+            <>
+              <LeadToolbar
+                search={search}
+                onSearch={setSearch}
+                count={visibleLeads.length}
+                total={roleScoped.length}
+                filters={filters}
+                onFilterChange={handleFilterChange}
+                dateFrom={dateFrom}
+                dateTo={dateTo}
+                onDateFrom={setDateFrom}
+                onDateTo={setDateTo}
+                onClearAll={clearAllFilters}
+                options={filterOptions}
+                visibleColumns={visibleCols}
+                onColumnsChange={setVisibleCols}
+                columnGroups={groups}
+                columnKeys={colKeys}
+                showDscFilter={isManager && effFocus === "team"}
+                canImport={isManager}
+                onImport={() => setImportOpen(true)}
+              />
+              {canReassign ? (
+                <BulkAssignBar
+                  count={selectedIds.size}
+                  onAssign={handleBulkAssign}
+                  onClear={() => setSelectedIds(new Set())}
+                />
+              ) : null}
+            </>
+          ) : (
+            <DealFilters
+              search={dealSearch}
+              onSearch={setDealSearch}
+              count={visibleDeals.length}
+              total={roleScopedDeals.length}
+              filters={dealFilters}
+              onFilterChange={handleDealFilterChange}
+              options={dealFilterOptions}
+              showOwnerFilter={isManager && effFocus === "team"}
+              onClearAll={clearDealFilters}
             />
-          ) : null}
+          )}
         </div>
 
         {loading ? (
           <div className="px-6 py-20 text-center text-sm text-slate-500">
-            Loading leads…
+            Loading…
           </div>
-        ) : (
+        ) : leadsView ? (
           <>
             <LeadTable
               leads={pagedLeads}
@@ -709,58 +811,51 @@ export default function LeadsPage() {
                 setExpandedId((cur) => (cur === id ? null : id))
               }
               renderExpanded={(lead) => (
-                <ExpandedLeadRow
+                <LeadDealsPanel
                   lead={lead}
-                  canEdit={canEditLead(lead)}
-                  canAssign={canReassign}
-                  onChange={handleFieldChange}
-                  groups={groups}
+                  deals={dealsByLead[lead.leadId] || []}
+                  catalogOfferings={catalogOfferings}
+                  interestIds={lead.interestedOfferingIds || []}
+                  canManageDeals={canEditLead(lead)}
+                  onToggleInterest={(offId) => toggleInterestFor(lead, offId)}
+                  onCreateDeal={(l) => setCreateDealLead(l)}
+                  onOpenDeal={(deal) => dealsApi.setDetailDeal(deal)}
+                  onOpenFull={(l) => setDetailLead(l)}
                 />
               )}
               onOpenDetail={setDetailLead}
             />
 
-            {/* Pager */}
-            <div className="sticky bottom-0 flex items-center justify-between gap-3 border-t border-slate-200 bg-white px-6 py-2.5 text-sm">
-              <span className="text-slate-500">
-                {visibleLeads.length === 0 ? (
-                  "No leads"
-                ) : (
-                  <>
-                    Showing{" "}
-                    <span className="font-semibold text-slate-700">
-                      {rangeStart}–{rangeEnd}
-                    </span>{" "}
-                    of{" "}
-                    <span className="font-semibold text-slate-700">
-                      {visibleLeads.length}
-                    </span>{" "}
-                    leads
-                  </>
-                )}
-              </span>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-400">
-                  Page {currentPage} of {pageCount}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={currentPage <= 1}
-                  className="rounded-md border border-slate-300 px-3 py-1 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Prev
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
-                  disabled={currentPage >= pageCount}
-                  className="rounded-md border border-slate-300 px-3 py-1 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Next
-                </button>
-              </div>
-            </div>
+            <Pager
+              start={rangeStart}
+              end={rangeEnd}
+              total={visibleLeads.length}
+              noun="leads"
+              page={currentPage}
+              pageCount={pageCount}
+              onPrev={() => setPage((p) => Math.max(1, p - 1))}
+              onNext={() => setPage((p) => Math.min(pageCount, p + 1))}
+            />
+          </>
+        ) : (
+          <>
+            <DealTable
+              deals={pagedDeals}
+              sortBy={dealSort.key}
+              sortDir={dealSort.dir}
+              onSort={handleDealSort}
+              onOpen={(deal) => dealsApi.setDetailDeal(deal)}
+            />
+            <Pager
+              start={dealRangeStart}
+              end={dealRangeEnd}
+              total={visibleDeals.length}
+              noun="deals"
+              page={currentDealPage}
+              pageCount={dealPageCount}
+              onPrev={() => setDealPage((p) => Math.max(1, p - 1))}
+              onNext={() => setDealPage((p) => Math.min(dealPageCount, p + 1))}
+            />
           </>
         )}
       </div>
@@ -772,14 +867,43 @@ export default function LeadsPage() {
         groups={groups}
         onChange={handleFieldChange}
         onClose={() => setDetailLead(null)}
-        canRequestWin={detailLead ? canRequestWin(detailLead) : false}
-        onRequestWin={(lead) => setWinRequestLead(lead)}
-        deals={detailDeals}
+        deals={dealsByLead[detailLead?.leadId] || []}
         catalogOfferings={catalogOfferings}
         interestIds={detailLead?.interestedOfferingIds || []}
         canManageDeals={canManageDeals}
-        onToggleInterest={toggleInterest}
+        onToggleInterest={(offId) => toggleInterestFor(detailLead, offId)}
         onCreateDeal={(lead) => setCreateDealLead(lead)}
+      />
+
+      <DealDetailSidebar
+        deal={dealsApi.detailDeal}
+        config={config}
+        canEditStatus={dealsApi.canEditDeal(dealsApi.detailDeal)}
+        canEditAmounts={dealsApi.canEditAmounts(dealsApi.detailDeal)}
+        canRequestWin={dealsApi.canRequestWin(dealsApi.detailDeal)}
+        onChangeStatus={dealsApi.moveDeal}
+        onChangeField={dealsApi.editDeal}
+        onRequestWin={(deal) =>
+          dealsApi.openWinRequest(deal, "Project Started")
+        }
+        onOpenLead={(leadId) => {
+          const lead = allLeads.find((l) => l.leadId === leadId);
+          if (lead) {
+            dealsApi.setDetailDeal(null);
+            setDetailLead(lead);
+          }
+        }}
+        onClose={() => dealsApi.setDetailDeal(null)}
+      />
+
+      <DealWinRequestModal
+        open={!!dealsApi.winDeal}
+        deal={dealsApi.winDeal}
+        toStatus={dealsApi.winToStatus}
+        requestedBy={viewerId}
+        today={monthKeyOf() + "-15"}
+        onSubmit={dealsApi.submitWinRequest}
+        onClose={dealsApi.closeWinRequest}
       />
 
       <CreateDealModal
@@ -791,15 +915,6 @@ export default function LeadsPage() {
         onClose={() => setCreateDealLead(null)}
       />
 
-      <WinRequestModal
-        open={!!winRequestLead}
-        lead={winRequestLead}
-        requestedBy={viewerId}
-        today={monthKeyOf() + "-15"}
-        onSubmit={handleRequestWin}
-        onClose={() => setWinRequestLead(null)}
-      />
-
       <ImportModal
         open={importOpen}
         onClose={() => setImportOpen(false)}
@@ -807,6 +922,49 @@ export default function LeadsPage() {
         onImported={handleImported}
         importCols={importCols}
       />
+    </div>
+  );
+}
+
+// Shared pager for both tables.
+function Pager({ start, end, total, noun, page, pageCount, onPrev, onNext }) {
+  return (
+    <div className="sticky bottom-0 flex items-center justify-between gap-3 border-t border-slate-200 bg-white px-6 py-2.5 text-sm">
+      <span className="text-slate-500">
+        {total === 0 ? (
+          `No ${noun}`
+        ) : (
+          <>
+            Showing{" "}
+            <span className="font-semibold text-slate-700">
+              {start}–{end}
+            </span>{" "}
+            of <span className="font-semibold text-slate-700">{total}</span>{" "}
+            {noun}
+          </>
+        )}
+      </span>
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-slate-400">
+          Page {page} of {pageCount}
+        </span>
+        <button
+          type="button"
+          onClick={onPrev}
+          disabled={page <= 1}
+          className="rounded-md border border-slate-300 px-3 py-1 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Prev
+        </button>
+        <button
+          type="button"
+          onClick={onNext}
+          disabled={page >= pageCount}
+          className="rounded-md border border-slate-300 px-3 py-1 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Next
+        </button>
+      </div>
     </div>
   );
 }

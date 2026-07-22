@@ -28,9 +28,12 @@ place without touching the UI. See [API_CONTRACT.md](./API_CONTRACT.md).
 
 **Domain: Lead → Deal.** A **Lead** is a prospect; a **Deal** is the unit of sale
 (one deal = one offering). A lead holds many deals over time. Money, stage,
-win-approval, commission and target live on the **deal**; the lead carries the
-funnel status and a non-binding interest list. The Lead Table is the prospect
-inbox, the Pipeline is a board of deals, and Approvals approves individual deals.
+approval, commission and target live on the **deal**; the lead carries the funnel
+status and a non-binding interest list. The DSC moves a deal freely up to "Won";
+advancing to **"Project Started"** needs the finalized amount + Admin approval —
+the money event that credits target + commission. The Lead Table has a
+**Leads | Deals** toggle (prospect inbox / deals table), the Pipeline is the deals
+Kanban, and Approvals groups pending deals under their lead.
 
 ## Folder map
 
@@ -43,16 +46,14 @@ src/
     globals.css            #   Tailwind entrypoint + base styles
   components/
     layout/                # Sidebar, Topbar — chrome shared across screens
-    leads/                 # Lead Table feature:
-                           #   columns.js (26-col metadata: order, defaults,
-                           #     sort type, import flag, width)
-                           #   LeadTable (resizable/truncating cols, checkboxes,
-                           #     row expansion), LeadToolbar, MultiSelectDropdown,
-                           #     ColumnPicker, ExpandedLeadRow (inline editor),
-                           #     ImportModal, BulkAssignBar, RoleSwitcher,
-                           #     LeadStatusBadge, ServiceChips, ExpandableCell,
-                           #     statusStyles.js
-    pipeline/              # Pipeline (deals board): DealBoard, DealToolbar,
+    leads/                 # Lead Table feature (Leads | Deals toggle):
+                           #   columns.js (26-col metadata), LeadTable,
+                           #   LeadToolbar, LeadDealsPanel (row-expand: a lead's
+                           #     deals + interest), LeadDetailSidebar,
+                           #     ExpandedLeadRow, ImportModal, BulkAssignBar,
+                           #     RoleSwitcher, statusStyles.js, …
+    deals/                 # Deals table view: DealTable, DealFilters
+    pipeline/              # Pipeline (deals Kanban): DealBoard, DealToolbar,
                            #   DealDetailSidebar, DealWinRequestModal
   data/                    # ⚠️ MOCK DATA ONLY — throwaway, replaced by the API
     mockLeads.js           #   option lists + team (BDM+DSCs) + ~30 leads (prospects)
@@ -64,6 +65,8 @@ src/
     config.js              # env-driven config (API base URL, mock flag)
     leadsApi.js            # ⭐ DATA ACCESS LAYER (leads) — swap mock → API here
     dealsApi.js            # ⭐ DATA ACCESS LAYER (deals) — swap mock → API here
+    useDeals.jsx           # shared deal hook (load + permissions + move/edit/
+                           #   approval) used by the Deals view AND the Pipeline
     commission.js          # pure per-deal commission math (catalog rules + hold)
     columnConfig.jsx       # editable column config (labels/aliases) + provider
     compConfig.jsx         # editable compensation/targets config + provider (Admin)

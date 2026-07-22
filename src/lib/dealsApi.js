@@ -130,8 +130,9 @@ export async function requestDealWin(dealId, payload) {
 
 /**
  * POST /api/deals/:dealId/approve-win — Admin approves: applies the requested
- * financials, sets dealStatus "Won" and stamps wonApprovedDate (the win is now
- * credited for target + commission). Admin-only.
+ * financials, advances the deal to the requested gated stage (default
+ * "Project Started") and stamps wonApprovedDate (the deal is now credited for
+ * target + commission). Admin-only.
  * @param {string} dealId
  * @param {{adminId:string, approvedDate:string}} decision
  */
@@ -145,7 +146,7 @@ export async function approveDealWin(dealId, { adminId, approvedDate }) {
   const req = deal?.approvalRequest || {};
   return simulateLatency(
     mockPatch(dealId, {
-      dealStatus: "Won",
+      dealStatus: req.requestedStatus || "Project Started",
       quotedAmount: req.quotedAmount ?? deal?.quotedAmount,
       closedAmount: req.closedAmount ?? deal?.closedAmount,
       wonApprovedDate: approvedDate,
