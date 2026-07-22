@@ -27,10 +27,18 @@ The domain has **two** records:
   offering** (`POST /api/deals`). A lead can hold **many** deals, now and in
   future (a repeat customer just gets new deals under the same lead).
 
-So the Lead Table is a **prospect inbox**, the Pipeline is a **board of deals**,
-and Approvals approves **individual deals**. Analytics keep the lead **funnel**
-(prospecting activity) but take **won counts, values, target and commission from
-deals**.
+So the Lead Table (`/leads`) has a **Leads | Deals** toggle: the Lead view is a
+**prospect inbox** (each row expands to the lead's deals + interest); the Deal
+view is a **table of every deal** with its own status/money filters. The Pipeline
+(`/pipeline`) is the same deals as a **Kanban board**. Approvals groups pending
+deals **under their lead**. Analytics keep the lead **funnel** (prospecting
+activity) but take **won counts, values, target and commission from deals**.
+
+**The approval gate is "Project Started".** The DSC moves a deal freely up to
+**"Won"** (the client has agreed). Advancing to **"Project Started"** requires the
+**finalized amount** and **Admin approval** — that is the money event. Only an
+**approved** deal (Project Started onward, carrying a `wonApprovedDate`) is
+credited toward target + commission; a deal merely at "Won" is not.
 
 ---
 
@@ -185,14 +193,25 @@ deal-native: In pipeline (count), Open value (Σ `quotedAmount` of open deals),
 Won (count), Won value (Σ `closedAmount`), and Pending (deals awaiting approval).
 Filters are **Status** (deal stages) and **Owner** (DSC, managers only).
 
-**Winning is the money event.** Moving a deal from a non-won stage **into** a won
-stage does **not** set it directly — it opens a win request (`request-win`) so the
-Admin can approve; the deal shows **pending** and locks until decided. Approving
-sets `dealStatus: "Won"` + `wonApprovedDate`. Other stage moves patch the deal via
-`PATCH /api/deals/:id`. Every move obeys the same permission model below: a deal is
-draggable/restageable only by its owner (a DSC) or a manager on an unassigned/own
-deal; a deal owned by another DSC (or anything while a manager is focused on a DSC)
-is read-only.
+**Starting the project is the money event.** Moving a deal from a non-gated stage
+**into** a gated stage (`Project Started` onward) does **not** set it directly — it
+opens the approval request (`request-win`, which captures the finalized amount) so
+the Admin can approve; the deal shows **pending** and locks until decided.
+Approving sets the requested gated stage (default `Project Started`) +
+`wonApprovedDate`. The DSC sets `Open → Proposal → Negotiation → Won` freely; the
+**pitched (`quotedAmount`) and finalized (`closedAmount`) amounts are editable on
+the deal** (discount derived) until it's approved, then locked. Other stage moves
+patch the deal via `PATCH /api/deals/:id`. Every move obeys the permission model
+below: a deal is editable only by its owner (a DSC) or a manager on an
+unassigned/own deal; a deal owned by another DSC (or anything while a manager is
+focused on a DSC) is read-only.
+
+**Deals view + Approvals grouping.** The `/leads` Deal view lists every deal as a
+table row (company, offering, type, owner, status, pitched, finalized, discount,
+approval, payment, created) with Status / Owner / Type / Approval filters — the
+tabular counterpart to the Kanban. **Approvals** (`/approvals`) groups the pending
+deals **under their lead**: one card per lead (company + pending-deal count), each
+listing its deals awaiting a decision with pricing + commission.
 
 ### TeamMember / User
 
@@ -269,9 +288,10 @@ Project Started, Project Delivered, Closed, Lost, On Hold, Cancelled`
 - **Deal Status** (`DEAL_STATUSES`, single-select, pipeline order — the stages a
   single-offering Deal moves through): `Open, Proposal Sent, Negotiation, Won,
 Project Started, Project Delivered, Closed, Lost, On Hold, Cancelled`
-  - `Open` = entry stage · `Won` onward (`WON_DEAL_STATUSES`) counts as won ·
-    Lost/Cancelled = reversals · On Hold = paused. `Won` is the approval-gated
-    money event.
+  - `Open` = entry stage · `Won` = client agreed (DSC-settable, **not** yet
+    credited) · `Project Started` onward (`APPROVAL_GATED_DEAL_STATUSES` /
+    `CREDITED_DEAL_STATUSES`) needs Admin approval and, once approved, counts as
+    won · Lost/Cancelled = reversals · On Hold = paused.
 - **Priority** (4): `Low, Medium, High, Urgent`
 - **Lead Source** (7): `LinkedIn, Instagram, Referral, Website, Cold Email, Event, Other`
 - **Industry** (14): `Hospitality, Healthcare, Manufacturing, Real Estate,
@@ -335,22 +355,24 @@ quotedAmount, createdDate, notes? }`; the backend assigns `dealId` and defaults
   `{ "dealStatus": "Negotiation" }`. **200** → the updated `Deal`. Enforce the
   edit-permission model (owner or manager on own/unassigned).
 
-### Deal win-approval flow (Won needs Admin approval)
+### Deal approval flow (Project Started needs Admin approval)
 
-A deal is credited as **won** only after the Admin approves the owner's request.
-Moving a deal into a won stage on the board raises the request; `dealStatus` moves
-to `Won` when the Admin approves. Three endpoints (`requestDealWin` /
-`approveDealWin` / `rejectDealWin` in `dealsApi.js`):
+A deal is credited only after the Admin approves the owner's request to **start
+the project**. Advancing a deal into a gated stage (`Project Started` onward)
+raises the request; `dealStatus` moves to that stage when the Admin approves.
+Three endpoints (`requestDealWin` / `approveDealWin` / `rejectDealWin` in
+`dealsApi.js`):
 
 - `POST /api/deals/:id/request-win` (deal owner) — Body `{ requestedBy,
-requestedDate, quotedAmount, closedAmount, note? }`. One deal = one offering, so
-  there are **no line items** — `closedAmount` is the single agreed amount;
-  discount % = `(quoted − closed)/quoted`. Sets `approvalStatus: "pending"` and
-  stores `approvalRequest`. Enforce owner-only.
+requestedDate, quotedAmount, closedAmount, requestedStatus?, note? }`. One deal =
+  one offering, so there are **no line items** — `closedAmount` is the single
+  finalized amount; discount % = `(quoted − closed)/quoted`. `requestedStatus` is
+  the gated stage being entered (default `Project Started`). Sets
+  `approvalStatus: "pending"` and stores `approvalRequest`. Enforce owner-only.
 - `POST /api/deals/:id/approve-win` (Admin) — Body `{ adminId, approvedDate }`.
-  Applies the requested `quotedAmount`/`closedAmount`, sets `dealStatus: "Won"`,
-  stamps `wonApprovedDate` (now credited for target + commission), and
-  `approvalStatus: "approved"`.
+  Applies the requested `quotedAmount`/`closedAmount`, sets `dealStatus` to the
+  requested gated stage (default `Project Started`), stamps `wonApprovedDate` (now
+  credited for target + commission), and `approvalStatus: "approved"`.
 - `POST /api/deals/:id/reject-win` (Admin) — Body `{ adminId, reason, decidedDate }`.
   Sets `approvalStatus: "rejected"` + `approvalReason`; the deal keeps its prior
   stage so the owner can revise and resubmit.
