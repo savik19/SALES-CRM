@@ -56,9 +56,11 @@ credited toward target + commission; a deal merely at "Won" is not.
 | `dealsApi.getDealsByLead(leadId)`           | `GET /api/leads/:id/deals`        | Lead detail deals list    |
 | `dealsApi.createDeal(deal)`                 | `POST /api/deals`                 | Create-deal (from a lead) |
 | `dealsApi.updateDeal(dealId, changes)`      | `PATCH /api/deals/:id`            | Pipeline stage / fields   |
-| `dealsApi.requestDealWin(dealId, payload)`  | `POST /api/deals/:id/request-win` | Win request (DSC)         |
-| `dealsApi.approveDealWin(dealId, decision)` | `POST /api/deals/:id/approve-win` | Approve win (Admin)       |
-| `dealsApi.rejectDealWin(dealId, decision)`  | `POST /api/deals/:id/reject-win`  | Reject win (Admin)        |
+| `dealsApi.requestApproval(dealId, …)`       | `POST /api/deals/:id/request-approval` | Request approval (owner) |
+| `dealsApi.approveDeal(dealId, …)`           | `POST /api/deals/:id/approve`     | Approve (Admin)           |
+| `dealsApi.rejectDeal(dealId, …)`            | `POST /api/deals/:id/reject`      | Reject (Admin)            |
+| `dealsApi.deliverDeal(dealId, …)`           | `POST /api/deals/:id/deliver`     | Set delivered (Admin)     |
+| `dealsApi.reverseDeal(dealId, …)`           | `POST /api/deals/:id/reverse`     | Reverse (Admin)           |
 
 The frontend passes **no auth today**. When auth exists, add it in the `apiGet`
 helper / `fetch` calls (one spot) — e.g. a Sanctum cookie (`credentials: "include"`)
@@ -85,7 +87,9 @@ or an `Authorization` header.
   "website": "https://…", // string url, may be ""
   "linkedinUrl": "https://…", // string url, may be ""
   "leadSource": "LinkedIn", // enum — LEAD_SOURCES (single-select)
-  "leadStatus": "Negotiation", // enum — LEAD_STATUSES (single-select)
+  "leadStatus": "interested", // enum — LEAD_STATUS (see below). Store a MANUAL
+  // value only; `in_discussion` / `won` are SERVER-DERIVED and must NEVER be
+  // accepted on write. `lost` is gated (zero approved deals).
   "priority": "High", // enum — PRIORITIES (single-select)
   "assignedDscId": "u-anaya", // string → TeamMember.id
   "attemptCount": 5, // number
@@ -113,8 +117,8 @@ the lead's `servicesInterested`. All money/stage/approval/commission live on the
 (below), not the lead.
 
 > **Discount %** is **computed, never stored**:
-> `(quotedAmount − closedAmount) / quotedAmount × 100`. The frontend derives it
-> (on a deal from its own quoted/closed); do not send it.
+> `(quotedAmount − finalAmount) / quotedAmount × 100`. The frontend derives it
+> (on a deal from its own quoted/final); do not send it.
 
 ### Deal (unit of sale — one offering)
 
@@ -129,15 +133,16 @@ A **Deal** is one confirmed offering under a Lead. Canonical typedef:
   "companyId": "co-sri-vari-textiles", // denormalized company grouping
   "offeringId": "svc-custom-software", // FK → catalog offering (prices the deal)
   "ownerId": "u-anaya", // FK → TeamMember.id (the owning DSC)
-  "dealStatus": "Open", // enum — DEAL_STATUSES (single-select, pipeline order)
+  "stage": "open", // enum — DEAL_STAGE (independent of approval)
+  "approval": "not_requested", // enum — DEAL_APPROVAL (independent of stage)
   "quotedAmount": 210000, // number (Rupees) PITCHED, or null
-  "closedAmount": null, // number (Rupees) FINALIZED/agreed; null until set
-  "lostReason": "", // enum — LOST_REASONS; only when dealStatus = "Lost"
+  "finalAmount": null, // number (Rupees) FINALIZED/agreed; the commission base
+  "lostReason": "", // enum — LOST_REASONS; only when stage = "cancelled"
   "createdDate": "2026-07-08", // ISO date the deal was created
-  "approvalStatus": "", // "" | "pending" | "approved" | "rejected"
-  "approvalRequest": null, // snapshot sent for approval (see win flow)
-  "approvalReason": "", // rejection reason, if any
-  "wonApprovedDate": "", // ISO date the Admin approved the win; "" until then
+  "approvalRequest": null, // snapshot captured at request time (see flow)
+  "approvalReason": "", // rejection / reversal reason, if any
+  "wonApprovedDate": "", // ISO date the Admin approved; "" until then
+  "deliveredDate": "", // ISO date the Admin set project_delivered; "" until then
   "approvalDecidedBy": "", // Admin id who decided
   "approvalDecidedDate": "", // ISO date of the decision
   "paymentStatus": "Pending", // "Pending" | "Partial" | "Paid"
@@ -146,10 +151,11 @@ A **Deal** is one confirmed offering under a Lead. Canonical typedef:
 }
 ```
 
-Only deals with a `wonApprovedDate` in a won stage count as **won** for analytics
-and commission. One deal carries exactly **one** `offeringId`, so its commission
-is that offering's rule applied to `closedAmount` (no line items — see the
-commission math below).
+`stage` and `approval` are **independent** (do not derive one from the other
+beyond the explicit approval transitions). A deal counts as **won** for analytics
+and commission once `approval === "approved"`. One deal carries exactly **one**
+`offeringId`, so its commission is that offering's rule applied to `finalAmount`
+(never `quotedAmount`; no line items — see the commission math below).
 
 **Analytics dates.** The analytics are month-filtered and computed client-side
 (`src/lib/analytics.js`). The **lead funnel** (prospecting) comes from lead dates
@@ -169,10 +175,16 @@ Lead funnel (from leads):
 
 Money (from deals, keyed by `ownerId`):
 
-- **Deals won** — deals in a won stage whose `wonApprovedDate` is in the month.
-- **Won value** — Σ `closedAmount` of those won deals.
-- **Pipeline value** — Σ `quotedAmount` of currently-open deals (a snapshot; not
-  won/lost/cancelled).
+- **Deals won** — deals with `approval === "approved"` whose `wonApprovedDate` is
+  in the month.
+- **Won value** — Σ `finalAmount` of those won deals.
+- **Pipeline value** — Σ `finalAmount ?? quotedAmount` of currently-live deals (a
+  snapshot; not approved/cancelled/reversed).
+
+**Commission — Earned (held) vs Payable.** On approval the owner's commission
+**accrues** (Earned, held); when the project is **delivered** it **releases**
+(Payable); a **reverse** claws it back (negative entry). The analytics show both
+figures separately for DSC and BDM.
 
 Earnings/target for the month use **deals won in the month** as the closed count
 (`monthlyDealTarget`), and commission is priced per deal (below).
@@ -184,34 +196,29 @@ the analytics (those use the month selector). By default no range is set, so the
 table shows **all** leads with the newest-assigned (`assignedDate` desc) on top.
 
 **Pipeline is a board of deals.** The Pipeline (`/pipeline`) is a Kanban of
-**deals**, one card per deal, grouped by `dealStatus` (in `DEAL_STATUSES` order).
-Each card shows the company (from the parent lead), the offering, the owner and
-the value. It is scoped to a **period** — a month (default = current, previous
-months selectable) or a calendar range — where a deal is "in the period" if its
-`createdDate` **or** `wonApprovedDate` falls in it. The board's overview stats are
-deal-native: In pipeline (count), Open value (Σ `quotedAmount` of open deals),
-Won (count), Won value (Σ `closedAmount`), and Pending (deals awaiting approval).
-Filters are **Status** (deal stages) and **Owner** (DSC, managers only).
+**deals**, one card per deal, grouped by `stage`. The columns are the **4
+user-controllable** stages (Open · Proposal Sent · Negotiation · Cancelled) plus
+two **read-only** trailing columns (Project Started · Project Delivered) that are
+set by Admin approval — dropping into them is rejected with a toast. Pending deals
+are locked (not draggable). It is scoped to a **period** where a deal is "in the
+period" if its `createdDate` **or** `wonApprovedDate` falls in it. Filters are
+**Stage**, **Approval** and **Owner** (managers only).
 
-**Starting the project is the money event.** Moving a deal from a non-gated stage
-**into** a gated stage (`Project Started` onward) does **not** set it directly — it
-opens the approval request (`request-win`, which captures the finalized amount) so
-the Admin can approve; the deal shows **pending** and locks until decided.
-Approving sets the requested gated stage (default `Project Started`) +
-`wonApprovedDate`. The DSC sets `Open → Proposal → Negotiation → Won` freely; the
-**pitched (`quotedAmount`) and finalized (`closedAmount`) amounts are editable on
-the deal** (discount derived) until it's approved, then locked. Other stage moves
-patch the deal via `PATCH /api/deals/:id`. Every move obeys the permission model
-below: a deal is editable only by its owner (a DSC) or a manager on an
-unassigned/own deal; a deal owned by another DSC (or anything while a manager is
-focused on a DSC) is read-only.
+**Starting the project is the money event.** A deal advances to `project_started`
+only via the approval flow (`request-approval` → Admin `approve`), never a direct
+stage set. The owner sets `open → proposal_sent → negotiation` freely; the
+**pitched (`quotedAmount`) and finalized (`finalAmount`) amounts are editable**
+(discount derived) while `approval ∈ {not_requested, rejected}`, then locked. Stage
+moves patch the deal via `PATCH /api/deals/:id`. Every move obeys the
+stage-editability matrix + permission model: editable only by the owner (DSC) or a
+manager on an own/unassigned deal.
 
 **Deals view + Approvals grouping.** The `/leads` Deal view lists every deal as a
-table row (company, offering, type, owner, status, pitched, finalized, discount,
-approval, payment, created) with Status / Owner / Type / Approval filters — the
+table row (company, offering, type, owner, stage, pitched, final, discount,
+approval, payment, created) with Stage / Owner / Type / Approval filters — the
 tabular counterpart to the Kanban. **Approvals** (`/approvals`) groups the pending
-deals **under their lead**: one card per lead (company + pending-deal count), each
-listing its deals awaiting a decision with pricing + commission.
+deals **under their lead** (Pending tab) with pricing + commission-to-credit, and
+a second **Approved** tab with Set Delivered / Reverse.
 
 ### TeamMember / User
 
@@ -278,20 +285,22 @@ hold multiple comma-separated values.
 
 Order matters where noted — the frontend sorts/filters against these lists.
 
-- **Lead Status** (single-select, 17, pipeline order — sort by this order, not
-  alphabetically): `New, Attempted, Contacted, Details Shared, Interested,
-Qualified, Meeting Scheduled, Meeting Done, Proposal Sent, Negotiation, Won,
-Project Started, Project Delivered, Closed, Lost, On Hold, Cancelled`
-  - 1–10 = active pipeline · 11–14 = post-sale (Won onward counts as won) · Lost
-    and On Hold = exits from the active pipeline · Cancelled = a _won_ deal that
-    fell apart (reachable only from Won / Project Started / Project Delivered).
-- **Deal Status** (`DEAL_STATUSES`, single-select, pipeline order — the stages a
-  single-offering Deal moves through): `Open, Proposal Sent, Negotiation, Won,
-Project Started, Project Delivered, Closed, Lost, On Hold, Cancelled`
-  - `Open` = entry stage · `Won` = client agreed (DSC-settable, **not** yet
-    credited) · `Project Started` onward (`APPROVAL_GATED_DEAL_STATUSES` /
-    `CREDITED_DEAL_STATUSES`) needs Admin approval and, once approved, counts as
-    won · Lost/Cancelled = reversals · On Hold = paused.
+- **Lead Status** (`LEAD_STATUS`, single-select, 10, funnel order): `new,
+attempted, contacted, details_shared, interested, meeting_scheduled,
+meeting_done, in_discussion, won, lost`
+  - 1–7 = **manual** · `in_discussion` and `won` are **SERVER-DERIVED** from the
+    lead's deals and must **never** be accepted on write (`deriveLeadStatus`):
+    `won` if any deal is `approved` (one-way door); else `in_discussion` if any
+    deal is live (open/proposal_sent/negotiation). `lost` is manual but settable
+    **only** when the lead has zero approved deals.
+- **Deal Stage** (`DEAL_STAGE`, single-select): `open, proposal_sent,
+negotiation, project_started, project_delivered, cancelled`
+  - `open/proposal_sent/negotiation` = user-controlled · `project_started` is set
+    by the **system on approval** · `project_delivered` is Admin-only ·
+    `cancelled` is terminal.
+- **Deal Approval** (`DEAL_APPROVAL`, single-select): `not_requested, pending,
+approved, rejected, reversed`
+  - `approved` credits the deal (target + commission) · `reversed` claws it back.
 - **Priority** (4): `Low, Medium, High, Urgent`
 - **Lead Source** (7): `LinkedIn, Instagram, Referral, Website, Cold Email, Event, Other`
 - **Industry** (14): `Hospitality, Healthcare, Manufacturing, Real Estate,
@@ -347,44 +356,68 @@ The Pipeline, Approvals and the lead-detail deals list read/write deals through
 - `GET /api/deals` → `Deal[]`. (Scope server-side per the logged-in user.)
 - `GET /api/leads/:id/deals` → the `Deal[]` for one lead.
 - `POST /api/deals` (deal owner) — create a deal for a lead. Body: a partial
-  `Deal` `{ leadId, companyId, offeringId, ownerId, dealStatus:"Open",
-quotedAmount, closedAmount?, createdDate, notes? }`; the backend assigns `dealId`
-  and defaults the rest. The `offeringId` must be one of the lead's
-  `servicesInterested` (that's the only list the create dropdown offers). Pitched
-  (`quotedAmount`) is required to save; the finalized amount is optional here and
-  becomes required to send the deal for approval. Enforce that the parent lead is
-  the caller's (or a manager's) prospect. **201** → the created `Deal`.
-- `PATCH /api/deals/:id` — partial `Deal` (stage, value, owner…), e.g.
-  `{ "dealStatus": "Negotiation" }`. **200** → the updated `Deal`. Enforce the
-  edit-permission model (owner or manager on own/unassigned).
+  `Deal` `{ leadId, companyId, offeringId, ownerId, stage:"open", quotedAmount,
+finalAmount?, createdDate, notes? }`; the backend assigns `dealId`, defaults
+  `approval:"not_requested"` and the rest. The `offeringId` must be one of the
+  lead's **active** `servicesInterested` offerings. **201** → the created `Deal`.
+- `PATCH /api/deals/:id` — partial `Deal` (stage, amounts, owner, offering), e.g.
+  `{ "stage": "negotiation" }`. **200** → updated `Deal`. **Never** set `approval`
+  here — use the flow endpoints below. Enforce the stage-editability matrix:
+  editable stages are `{open, proposal_sent, negotiation, cancelled}` only when
+  `approval ∈ {not_requested, rejected}`; `pending` is locked; an `approved` deal
+  is Admin-only (`project_delivered`/`cancelled` via deliver/reverse); `reversed`
+  is terminal.
 
-### Deal approval flow (Project Started needs Admin approval)
+### Deal approval flow (the money event)
 
-A deal is credited only after the Admin approves the owner's request to **start
-the project**. Advancing a deal into a gated stage (`Project Started` onward)
-raises the request; `dealStatus` moves to that stage when the Admin approves.
-Three endpoints (`requestDealWin` / `approveDealWin` / `rejectDealWin` in
-`dealsApi.js`):
+`approval` is the money control, separate from `stage`. Five endpoints
+(`requestApproval` / `approveDeal` / `rejectDeal` / `deliverDeal` / `reverseDeal`
+in `dealsApi.js`). All writes to the commission ledger + audit trail happen
+**server-side** here — the UI never writes them.
 
-- `POST /api/deals/:id/request-win` (deal owner) — Body `{ requestedBy,
-requestedDate, quotedAmount, closedAmount, requestedStatus?, note? }`. One deal =
-  one offering, so there are **no line items** — `closedAmount` is the single
-  finalized amount; discount % = `(quoted − closed)/quoted`. `requestedStatus` is
-  the gated stage being entered (default `Project Started`). Sets
-  `approvalStatus: "pending"` and stores `approvalRequest`. Enforce owner-only.
-- `POST /api/deals/:id/approve-win` (Admin) — Body `{ adminId, approvedDate }`.
-  Applies the requested `quotedAmount`/`closedAmount`, sets `dealStatus` to the
-  requested gated stage (default `Project Started`), stamps `wonApprovedDate` (now
-  credited for target + commission), and `approvalStatus: "approved"`.
-- `POST /api/deals/:id/reject-win` (Admin) — Body `{ adminId, reason, decidedDate }`.
-  Sets `approvalStatus: "rejected"` + `approvalReason`; the deal keeps its prior
-  stage so the owner can revise and resubmit.
+- `POST /api/deals/:id/request-approval` (deal owner) — Body `{ requestedBy,
+requestedDate, quotedAmount, finalAmount, note? }`. Preconditions (re-validate
+  server-side): `stage ∈ {open, proposal_sent, negotiation}`, `approval ∈
+{not_requested, rejected}`, `finalAmount > 0`, an owner and an `offeringId`. Sets
+  `approval: "pending"` (stage frozen), stores `approvalRequest`. Owner-only.
+- `POST /api/deals/:id/withdraw-approval` (owner) — pending → `not_requested`.
+- `POST /api/deals/:id/approve` (**Admin only**) — atomically: `approval:
+"approved"`, `stage: "project_started"`, stamp `wonApprovedDate`, write a
+  commission **accrual** ledger entry for `ownerId`, append an audit entry.
+- `POST /api/deals/:id/reject` (**Admin only**) — Body `{ adminId, reason }`
+  (reason **required**). `approval: "rejected"` + `approvalReason`; stage
+  unchanged so the owner can revise and resubmit.
+- `POST /api/deals/:id/deliver` (**Admin only**, on an approved deal) — `stage:
+"project_delivered"`, stamp `deliveredDate`, write a commission **release** entry.
+- `POST /api/deals/:id/reverse` (**Admin only**, on an approved deal) — Body
+  `{ adminId, reason }` (required). Atomically `approval: "reversed"` **and**
+  `stage: "cancelled"`, write a **negative** (reversal) ledger entry.
 
-Approval fields on a Deal: `approvalStatus` (""/pending/approved/rejected),
-`approvalRequest` (the snapshot above), `approvalReason`, `approvalDecidedBy`,
-`approvalDecidedDate`, `wonApprovedDate`. Only deals with `wonApprovedDate` in a
-won stage count as won in the analytics + commission. The Admin reviews pending
-requests on the **Approvals** screen (`/approvals`).
+**BDM cannot approve** — approval is the money control and the BDM is compensated
+on team sales (conflict of interest). The BDM sees the pending queue read-only.
+The Admin acts on the **Approvals** screen (`/approvals`): a Pending tab grouped
+by lead (with the commission-to-credit and a discount-over-20% flag, plus bulk
+approve) and an Approved tab (Set Delivered / Reverse).
+
+### Commission ledger + audit trail (new tables — please build)
+
+- `GET /api/commission-ledger?userId=&dealId=` → `CommissionEntry[]` (see
+  `types.js`). **Append-only** — entries are written only by the approve/deliver/
+  reverse endpoints above, never by the client. Each entry snapshots the comp
+  rule (`ruleSnapshot`) at that moment so a later config edit never rewrites
+  history. `commissionReleaseTrigger` (`project_started` | `project_delivered`,
+  default the latter) decides when an accrual becomes payable.
+- `GET /api/audit?entityType=&entityId=` → `AuditEntry[]` (see `types.js`) — the
+  last N changes to a lead or deal (status/stage/approval/amount/owner/offering),
+  rendered in the Activity section of both detail sidebars.
+
+### Offering catalog (compensation)
+
+Offerings live in the compensation config (`GET/PUT /api/compensation`), each
+`{ id, name, kind, dsc:{type,value}, bdm:{type,value}, active }`. Commission =
+`percent → finalAmount*value/100`, `fixed → value`, always from `finalAmount`.
+Deactivating an offering (`active:false`) must **not** break existing deals —
+filter inactive ones out of the **create** dropdown only.
 
 ---
 
@@ -503,20 +536,20 @@ amount (typical for subscription products). Services default to fixed, products
 to percent, but either can use either.
 
 **Commission math** lives in `src/lib/commission.js` (pure, no React). A Deal is
-**one offering** (`deal.offeringId` priced on `deal.closedAmount`):
+**one offering** (`deal.offeringId` priced on `deal.finalAmount`, never the quote):
 
 - `singleDealCommission(deal, config, role)` — that role's rule for the deal's
-  offering applied to its closed amount (falls back to quoted before it's won).
-- `commissionStatus(deal, now)` — `none` (not an approved win) · `reversed`
-  (cancelled/lost → ₹0) · `pending` (approved, still inside the `HOLD_MONTHS`-month
-  quarterly hold) · `finalized` (hold elapsed → payable). Reads `deal.dealStatus`.
-- `commissionForDeals(deals, config, role, now)` (in `analytics.js`) →
-  `{ finalized, pending, total }` over a person's won deals.
+  offering applied to `finalAmount`.
+- `dealCommissionSplit(deal, config, role)` → `{ held, payable }` under the
+  config's `commissionReleaseTrigger`: an approved deal accrues **held** until the
+  stage reaches `project_delivered` (or the trigger is `project_started`), when it
+  becomes **payable**; a reversed/cancelled deal contributes ₹0.
+- The append-only **ledger** (`commissionLedger.js`) is the record of truth: an
+  accrual on approve, a release on deliver, a negative reversal on reverse — each
+  snapshotting the rule so history never changes.
 
-Fixed vs percent, the per-role rates, and the hold window are all data, so tuning
-them is an Admin edit, not a code change. (The older `dealCommission` /
-`dealClosedValue` / `commissionRollup` line-item helpers remain for reference but
-the single-offering deal uses `singleDealCommission`.)
+Fixed vs percent, the per-role rates, and the release trigger are all data, so
+tuning them is an Admin edit, not a code change.
 
 ## Roles & scoping (Build Brief §4)
 
@@ -551,7 +584,7 @@ The scraped `.xlsx` contains exactly the **17 import-sheet columns** (marked in
 `src/components/leads/columns.js` via `inImportSheet`, exposed as
 `IMPORT_SHEET_HEADERS`): Lead Id, Company, Industry, Contact Person, Role / Title,
 Phone, Email, City, Country, Website, LinkedIn URL, Lead Source, Lead Status,
-Priority, Last Contact Date, Next Follow-up Date, Notes. Columns 18–26 are
+Priority, Last Contact Date, Next Follow-up Date, Notes. Columns 18–22 are
 CRM-only and filled in later. Duplicate detection matches on Phone OR Email OR
 (Company + City).
 
@@ -559,7 +592,8 @@ CRM-only and filled in later. Duplicate detection matches on Phone OR Email OR
 
 | Screen (roadmap) | Suggested endpoints                                                       |
 | ---------------- | ------------------------------------------------------------------------- |
-| Deals / Pipeline | `GET/POST /api/deals`, `PATCH /api/deals/:id`, win request/approve/reject |
+| Deals / Pipeline | `GET/POST /api/deals`, `PATCH /api/deals/:id`, request-approval / approve / reject / deliver / reverse |
+| Ledger / Audit   | `GET /api/commission-ledger`, `GET /api/audit` |
 | User Management  | `GET/POST /api/users`, `PUT /api/users/:id`, status/invite                |
 | Compensation     | `GET/PUT /api/compensation` (defaults + per-person overrides)             |
 | Auth             | `GET /api/me` → current user (drives role scoping)                        |

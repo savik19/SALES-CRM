@@ -94,6 +94,31 @@
     deductions; changes reflect immediately in the DSC/BDM analytics (verified:
     lowering the DSC target unlocks a DSC's commission live).
 
+- **2026-07-24** — **Status Model Redesign + Module Hardening.** Collapsed the
+  lead status from 17 → **10** and formalised the Lead → Deal relationship,
+  approval workflow, commission ledger, and audit trail. See §6 (rewritten).
+  - **Lead status (10):** 7 manual (`new`, `attempted`, `contacted`,
+    `details_shared`, `interested`, `meeting_scheduled`, `meeting_done`) + 2
+    **derived** (`in_discussion`, `won`) + `lost` (manual, gated). Proposal Sent
+    and Negotiation moved onto the **deal** (a lead holds N deals, so no single
+    lead status can describe transaction progress). Derivation is pure in
+    `src/lib/leadStatus.js`; the 10 values live in `src/lib/statuses.js`.
+  - **Deal = two independent fields:** `stage` (open · proposal_sent ·
+    negotiation · project_started · project_delivered · cancelled) and `approval`
+    (not_requested · pending · approved · rejected · reversed). `closedAmount`
+    renamed `finalAmount` (the commission base — never the quote). Stage
+    editability matrix + approval flow in `src/lib/useDeals.jsx` / `dealsApi.js`.
+  - **Commission ledger** (`src/lib/commissionLedger.js`): append-only entries
+    (accrual on approve, release on deliver, reversal on reverse) that snapshot
+    the comp rule so historical payouts never change. `commissionReleaseTrigger`
+    config (default `project_delivered`) drives Earned (held) vs Payable.
+  - **Audit trail** (`src/lib/audit.js`) + Activity sections on both sidebars.
+  - **Permissions** (`src/lib/permissions.js`): single `can(user, action,
+    resource)`; **BDM cannot approve** (money-control conflict of interest).
+  - Rebuilt Approvals (Pending grouped by lead + Approved tab with Set Delivered
+    / Reverse), the Kanban (4 drag stages + read-only Started/Delivered), and the
+    5 computed lead deal-count columns. `npm run lint && build` green; verified.
+
 ---
 
 ## 1. What we are building
@@ -192,32 +217,68 @@ commercial → dates → notes) — 10 shown by default, the rest via a column-p
 | 20  | Services Pitched    | multi-select  | No — CRM only    | No      |
 | 21  | Services Interested | multi-select  | No — CRM only    | No      |
 | 22  | Services Onboarded  | multi-select  | No — CRM only    | No      |
-| 23  | Quoted Amount       | number (Rs.)  | No — CRM only    | No      |
-| 24  | Closed Amount       | number (Rs.)  | No — CRM only    | No      |
-| 25  | Discount %          | computed      | No — CRM only    | No      |
-| 26  | Lost Reason         | single-select | No — CRM only    | No      |
 
-- **Import sheet** = columns 1–17 only (the scraped `.xlsx`). Columns 18–26 are
+- **Money moved to the DEAL.** Quoted / Closed / Discount / Lost Reason no longer
+  live on the lead — a lead holds many deals, and money is per deal. `finalAmount`,
+  `quotedAmount`, discount and cancellation reason are Deal fields.
+- **Computed deal-count columns** (derived from the lead's deals, non-mappable,
+  sortable): `dealsTotal`, `dealsLive`, `dealsStarted`, `dealsDelivered`,
+  `wonValue`. Registered through `lib/columnConfig.jsx` with `computed: true`.
+- **Import sheet** = columns 1–17 only (the scraped `.xlsx`). Columns 18–22 are
   CRM-only, filled in by the team after import.
 - **Phone** stays text (may hold multiple comma-separated numbers) — never a number type.
-- **Discount %** = `(Quoted − Closed) / Quoted × 100`, computed on the fly, never stored.
 - **Services** columns render as chips (first two + "+N"). Long/among-many cells
   truncate with a tooltip and expand on click; columns are resizable; a row's
   expand arrow opens an inline editor for every field.
 
 ---
 
-## 6. Lead statuses (pipeline — 17 values, fixed order)
+## 6. Status model (single source of truth: `src/lib/statuses.js`)
 
-`New → Attempted → Contacted → Details Shared → Interested → Qualified →
-Meeting Scheduled → Meeting Done → Proposal Sent → Negotiation → Won →
-Project Started → Project Delivered → Closed → Lost → On Hold → Cancelled`
+### 6.1 Lead status — 10 values
 
-- **1–10** (New → Negotiation) = active sales pipeline.
-- **11–14** (Won → Closed) = post-sale; anything at Won or beyond counts as won.
-- **Lost** and **On Hold** are exits from the active pipeline.
-- **Cancelled** = a _won_ deal that fell apart (reachable only from Won, Project
-  Started, or Project Delivered) — not the same as Lost.
+| #   | Key                 | Label             | Set by            |
+| --- | ------------------- | ----------------- | ----------------- |
+| 1   | `new`               | New               | system (on import)|
+| 2   | `attempted`         | Attempted         | DSC / BDM         |
+| 3   | `contacted`         | Contacted         | DSC / BDM         |
+| 4   | `details_shared`    | Details Shared    | DSC / BDM         |
+| 5   | `interested`        | Interested        | DSC / BDM         |
+| 6   | `meeting_scheduled` | Meeting Scheduled | DSC / BDM         |
+| 7   | `meeting_done`      | Meeting Done      | DSC / BDM         |
+| 8   | `in_discussion`     | In Discussion     | **derived**       |
+| 9   | `won`               | Won               | **derived**       |
+| 10  | `lost`              | Lost              | DSC / BDM (gated)  |
+
+- **Why derived?** Proposal Sent and Negotiation now live on the **deal**, not
+  the lead. A lead can hold many deals, so any lead status describing transaction
+  progress cannot represent N deals in one value. Statuses 8–9 are computed from
+  the lead's deals by `deriveLeadStatus(lead, deals)` (pure, in `lib/leadStatus.js`):
+  - `won` if the lead has **any approved deal** (a one-way door — a customer
+    forever, even if later deals cancel), or the lead is already `won`.
+  - else `in_discussion` if the lead has a **live** deal (open / proposal_sent /
+    negotiation).
+  - else the stored manual status.
+- **Validation:** `in_discussion` / `won` are never user-selectable and the API
+  must reject them on write. `lost` is settable **only** when the lead has zero
+  approved deals (gated in the UI _and_ the data layer). Once `won`, the manual
+  dropdown is disabled.
+
+### 6.2 Deal stage — 6 values (independent field)
+
+`open → proposal_sent → negotiation` (user-controlled) · `project_started`
+(system, on approval) · `project_delivered` (Admin) · `cancelled`.
+
+### 6.3 Deal approval — 5 values (independent field)
+
+`not_requested` (default) · `pending` (submitted) · `approved` (stage →
+project_started, commission accrues) · `rejected` (reason required) · `reversed`
+(previously-approved deal cancelled; stage → cancelled, negative ledger entry).
+
+**Approval flow.** Owner requests approval (needs `finalAmount > 0`, an owner and
+an offering; cancelled deals can never request) → `pending` (stage frozen) →
+Admin **Approve** (accrual) / **Reject** (reason) / **Deliver** (release) /
+**Reverse** (reversal). Every transition writes an **audit** entry.
 
 Other single-selects (Priority, Lead Source, Industry, Lost Reason) and the
 Services multi-select are enumerated in `src/data/mockLeads.js`.

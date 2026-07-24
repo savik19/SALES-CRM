@@ -51,22 +51,36 @@ Admin-only screens that configure the CRM (available from the sidebar):
 - **Compensation** (`/settings/compensation`) — salaries, targets, commission %,
   training length/amount and deductions; the DSC/BDM analytics read these live.
 
-### ⬜ 3. Analytics
+### ✅ 3. Analytics
 
-Charts/summaries over leads — by status, industry, location, value.
+Role-aware analytics panel over leads + deals: funnel counts, deal-based monthly
+targets, and earnings with commission split into **Earned (held)** vs **Payable**.
+Pure computations in `src/lib/analytics.js` (takes deals as an argument).
 
-- New: `src/app/analytics/page.jsx`, `src/components/analytics/*`.
-- Suggested endpoint: `GET /api/analytics/leads?groupBy=…` (see API_CONTRACT).
-- Pick a lightweight chart lib (e.g. Recharts) — document the choice.
+- **Files:** `src/components/analytics/AnalyticsPanel.jsx`, `src/lib/analytics.js`.
 
-### ⬜ 4. KPIs (daily activity per DSC — Brief §7)
+### ✅ 4. Status Model Redesign + Module Hardening
+
+Collapsed the lead status to **10** values (7 manual + derived `in_discussion` /
+`won` + gated `lost`) and split the deal into two independent fields (`stage`,
+`approval`). Formalised the approval flow (request → approve → deliver / reverse),
+the append-only **commission ledger** (accrue on approval, release on delivery),
+the **audit trail**, and a single `permissions.js` (BDM cannot approve). Rebuilt
+Approvals, the Kanban (4 drag + 2 read-only stages) and Analytics.
+
+- **Pure rule modules:** `src/lib/statuses.js` (single source of truth),
+  `leadStatus.js`, `permissions.js`, `commission.js`, `commissionLedger.js`,
+  `audit.js`. Every rule has a data-layer guard in `dealsApi.js` / the page, not
+  just the UI, mirrored for the server in [API_CONTRACT.md](./API_CONTRACT.md).
+
+### ⬜ 5. KPIs (daily activity per DSC — Brief §7)
 
 Daily entry form + roll-ups (calls, connects, LinkedIn outreach).
 
 - New: `src/app/kpis/page.jsx`, `src/lib/kpisApi.js`, `KpiEntry` type (exists).
 - Endpoints: `GET /api/kpis`, `POST /api/kpis`.
 
-### ⬜ 5. Role-based views & dashboards
+### ⬜ 6. Role-based views & dashboards
 
 DSC dashboard (my leads, my follow-ups, my targets) vs BDM dashboard (team
 analytics, per-DSC KPIs, targets vs achieved, reassignment).
