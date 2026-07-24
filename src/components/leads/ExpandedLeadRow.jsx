@@ -6,11 +6,7 @@ import {
   INDUSTRIES,
   SERVICES,
 } from "@/data/mockLeads";
-import {
-  MANUAL_LEAD_STATUSES,
-  LEAD_STATUS,
-  labelOf,
-} from "@/lib/statuses";
+import { MANUAL_LEAD_STATUSES, LEAD_STATUS, labelOf } from "@/lib/statuses";
 import { formatINR } from "@/lib/format";
 import { useActiveDscs, useUsers } from "@/lib/usersConfig";
 
@@ -103,7 +99,7 @@ function Field({ column, lead, canEdit, canAssign, onChange, dscs }) {
   } else if (cfg.type === "computed") {
     control = (
       <span className="text-sm text-slate-700">
-        {key === "wonValue" ? (value ? formatINR(value) : "—") : value ?? 0}
+        {key === "wonValue" ? (value ? formatINR(value) : "—") : (value ?? 0)}
       </span>
     );
   } else if (cfg.type === "status") {
@@ -115,7 +111,9 @@ function Field({ column, lead, canEdit, canAssign, onChange, dscs }) {
         disabled={!canEdit || locked}
         onChange={(e) => set(e.target.value)}
         title={
-          locked ? "This lead is Won (has an approved deal) — status locked." : ""
+          locked
+            ? "This lead is Won (has an approved deal) — status locked."
+            : ""
         }
       >
         {options.map((o) => (

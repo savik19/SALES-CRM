@@ -149,7 +149,10 @@ export function useDeals({ user, focusIsDsc, config }) {
     (deal) => {
       if (!deal) return { ok: false, reason: "No deal." };
       if (!(owns(deal) && can(user, "request_approval", deal)))
-        return { ok: false, reason: "You can't request approval for this deal." };
+        return {
+          ok: false,
+          reason: "You can't request approval for this deal.",
+        };
       if (deal.approval === DEAL_APPROVAL.PENDING)
         return { ok: false, reason: "Already awaiting Admin approval." };
       if (deal.approval === DEAL_APPROVAL.APPROVED)
@@ -160,8 +163,7 @@ export function useDeals({ user, focusIsDsc, config }) {
         return { ok: false, reason: "Cancelled deals can't request approval." };
       if (!(Number(deal.finalAmount) > 0))
         return { ok: false, reason: "Set the finalized amount first." };
-      if (!deal.ownerId)
-        return { ok: false, reason: "Assign an owner first." };
+      if (!deal.ownerId) return { ok: false, reason: "Assign an owner first." };
       if (!deal.offeringId)
         return { ok: false, reason: "Pick an offering first." };
       return { ok: true, reason: "" };
@@ -186,10 +188,7 @@ export function useDeals({ user, focusIsDsc, config }) {
     setDetailDeal((d) => (d && d.dealId === dealId ? { ...d, ...patch } : d));
   }, []);
 
-  const actor = useMemo(
-    () => ({ id: user?.id, role: user?.role }),
-    [user]
-  );
+  const actor = useMemo(() => ({ id: user?.id, role: user?.role }), [user]);
 
   // ---- Actions ------------------------------------------------------------
   // Move a deal's stage (pre-approval), if allowed. Returns false + a reason

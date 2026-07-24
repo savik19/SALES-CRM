@@ -115,17 +115,29 @@ const A = DEAL_APPROVAL;
 const DEAL_SEED_OVERRIDES = {
   // (1) 2 live deals + 1 delivered → lead renders Won.
   SCRIPT8008: [
-    { offering: "Custom Software", stage: S.PROJECT_DELIVERED, approval: A.APPROVED },
+    {
+      offering: "Custom Software",
+      stage: S.PROJECT_DELIVERED,
+      approval: A.APPROVED,
+    },
     { offering: "Mobile App", stage: S.OPEN, approval: A.NOT_REQUESTED },
     { offering: "AI Tools", stage: S.NEGOTIATION, approval: A.NOT_REQUESTED },
   ],
   // (2) only cancelled deals → Lost stays selectable (no approved deal).
   SCRIPT8013: [
-    { offering: "Custom Software", stage: S.CANCELLED, approval: A.NOT_REQUESTED },
+    {
+      offering: "Custom Software",
+      stage: S.CANCELLED,
+      approval: A.NOT_REQUESTED,
+    },
   ],
   // (4) a pending deal → stage locked for everyone.
   SCRIPT8018: [
-    { offering: "SaaS Subscription", stage: S.NEGOTIATION, approval: A.PENDING },
+    {
+      offering: "SaaS Subscription",
+      stage: S.NEGOTIATION,
+      approval: A.PENDING,
+    },
   ],
   // (5) a reversed deal with its negative ledger entry present.
   SCRIPT8026: [
@@ -133,7 +145,11 @@ const DEAL_SEED_OVERRIDES = {
   ],
   // (6) previously-Won lead with a brand-new open deal → stays Won.
   SCRIPT8036: [
-    { offering: "Website Development", stage: S.PROJECT_DELIVERED, approval: A.APPROVED },
+    {
+      offering: "Website Development",
+      stage: S.PROJECT_DELIVERED,
+      approval: A.APPROVED,
+    },
     { offering: "AI Tools", stage: S.OPEN, approval: A.NOT_REQUESTED },
   ],
 };
@@ -144,10 +160,15 @@ function dealsForLead(lead) {
   const override = DEAL_SEED_OVERRIDES[lead.leadId];
   if (override) {
     return override.map((o, i) =>
-      makeDeal(lead, OFFERING_ID_BY_NAME[o.offering] || "svc-custom-software", i, {
-        stage: o.stage,
-        approval: o.approval,
-      })
+      makeDeal(
+        lead,
+        OFFERING_ID_BY_NAME[o.offering] || "svc-custom-software",
+        i,
+        {
+          stage: o.stage,
+          approval: o.approval,
+        }
+      )
     );
   }
   const spec = LEGACY_TO_DEALSPEC[lead._legacyStatus];

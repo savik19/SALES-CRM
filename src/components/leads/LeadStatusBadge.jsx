@@ -30,7 +30,9 @@ export function StatusBadge({ status }) {
 export function StageBadge({ stage }) {
   if (!stage) return <span className="text-slate-400">—</span>;
   return (
-    <span className={`${base} ${stageBadgeClass(stage)}`}>{labelOf(stage)}</span>
+    <span className={`${base} ${stageBadgeClass(stage)}`}>
+      {labelOf(stage)}
+    </span>
   );
 }
 

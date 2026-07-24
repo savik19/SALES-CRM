@@ -28,7 +28,9 @@ export default function ActivityLog({ entityType, entityId, limit = 20 }) {
       </button>
       {open ? (
         entries.length === 0 ? (
-          <p className="mt-2 text-xs text-slate-400">No recorded activity yet.</p>
+          <p className="mt-2 text-xs text-slate-400">
+            No recorded activity yet.
+          </p>
         ) : (
           <ul className="mt-2 space-y-2">
             {entries.map((e) => (

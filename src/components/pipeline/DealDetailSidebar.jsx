@@ -41,7 +41,9 @@ function AmountField({ label, value, editable, onChange, hint }) {
           {value != null ? formatINR(value) : "—"}
         </div>
       )}
-      {hint ? <p className="mt-0.5 text-[10px] text-slate-400">{hint}</p> : null}
+      {hint ? (
+        <p className="mt-0.5 text-[10px] text-slate-400">{hint}</p>
+      ) : null}
     </div>
   );
 }
@@ -133,13 +135,14 @@ export default function DealDetailSidebar({
 
             {pending ? (
               <div className="border-b border-amber-200 bg-amber-50 px-6 py-2.5 text-xs text-amber-700">
-                ⏳ Awaiting Admin approval to start the project. Stage is locked.
+                ⏳ Awaiting Admin approval to start the project. Stage is
+                locked.
               </div>
             ) : deal.approval === DEAL_APPROVAL.REJECTED ? (
               <div className="border-b border-red-200 bg-red-50 px-6 py-2.5 text-xs text-red-700">
                 ✕ Last approval request was rejected
-                {deal.approvalReason ? `: “${deal.approvalReason}”` : ""}. Revise
-                and resend.
+                {deal.approvalReason ? `: “${deal.approvalReason}”` : ""}.
+                Revise and resend.
               </div>
             ) : deal.approval === DEAL_APPROVAL.REVERSED ? (
               <div className="border-b border-slate-300 bg-slate-100 px-6 py-2.5 text-xs text-slate-700">
@@ -168,7 +171,8 @@ export default function DealDetailSidebar({
                   ))}
                 </select>
                 <p className="mt-1 text-[10px] text-slate-400">
-                  Project Started / Delivered are set by Admin approval, not here.
+                  Project Started / Delivered are set by Admin approval, not
+                  here.
                 </p>
               </div>
 
@@ -188,7 +192,10 @@ export default function DealDetailSidebar({
                   hint="Agreed price (commission base)"
                 />
                 <Field label="Discount" value={discountPctLabel(deal)} />
-                <Field label="Payment" value={deal.paymentStatus || "Pending"} />
+                <Field
+                  label="Payment"
+                  value={deal.paymentStatus || "Pending"}
+                />
                 <Field
                   label="Owner"
                   value={deal.ownerId ? dscName(deal.ownerId) : "Unassigned"}
@@ -293,7 +300,9 @@ export default function DealDetailSidebar({
                   </button>
                 </div>
               ) : null}
-              {isAdmin && approved && deal.stage === DEAL_STAGE.PROJECT_STARTED ? (
+              {isAdmin &&
+              approved &&
+              deal.stage === DEAL_STAGE.PROJECT_STARTED ? (
                 <div className="flex gap-2">
                   <button
                     type="button"

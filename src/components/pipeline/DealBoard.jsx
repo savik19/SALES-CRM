@@ -18,7 +18,14 @@ const BOARD_COLUMNS = [...KANBAN_STAGES, ...OUTCOME_STAGES]; // 4 drag + 2 outco
 // One deal card. Draggable only when the viewer may move it AND it isn't pending
 // (a pending deal is locked with a lock icon). The card's stage select offers
 // only the stages the viewer may pick (`selectableStages(deal)`).
-function DealCard({ deal, canDrag, selectableStages, onMove, onReject, onOpen }) {
+function DealCard({
+  deal,
+  canDrag,
+  selectableStages,
+  onMove,
+  onReject,
+  onOpen,
+}) {
   const value = deal.finalAmount ?? deal.quotedAmount;
   const pending = deal.approval === DEAL_APPROVAL.PENDING;
   const rejected = deal.approval === DEAL_APPROVAL.REJECTED;
@@ -44,8 +51,8 @@ function DealCard({ deal, canDrag, selectableStages, onMove, onReject, onOpen })
         pending
           ? "Locked — awaiting Admin approval"
           : canDrag
-          ? undefined
-          : "Read-only"
+            ? undefined
+            : "Read-only"
       }
     >
       <div className="flex items-start justify-between gap-2">
@@ -171,8 +178,8 @@ export default function DealBoard({
               dragOver === stage
                 ? "border-brand bg-brand-50/50"
                 : readOnly
-                ? ""
-                : "border-slate-200 bg-slate-50"
+                  ? ""
+                  : "border-slate-200 bg-slate-50"
             }`}
           >
             <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-3 py-2">

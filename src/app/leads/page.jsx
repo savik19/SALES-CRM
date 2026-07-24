@@ -153,7 +153,8 @@ function compareDeals(a, b, key, dir) {
       return compareDate(a.createdDate, b.createdDate, factor);
     case "stage":
       return (
-        (DEAL_STAGE_ORDER.indexOf(a.stage) - DEAL_STAGE_ORDER.indexOf(b.stage)) *
+        (DEAL_STAGE_ORDER.indexOf(a.stage) -
+          DEAL_STAGE_ORDER.indexOf(b.stage)) *
         factor
       );
     case "ownerId":
@@ -625,7 +626,10 @@ export default function LeadsPage() {
         actor: { id: viewer?.id, role: viewer?.role },
       });
     }
-    if ("assignedDscId" in patch && patch.assignedDscId !== lead?.assignedDscId) {
+    if (
+      "assignedDscId" in patch &&
+      patch.assignedDscId !== lead?.assignedDscId
+    ) {
       recordAudit({
         entityType: "lead",
         entityId: leadId,

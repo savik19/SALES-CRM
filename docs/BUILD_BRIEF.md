@@ -80,6 +80,7 @@
     column counts no longer freeze the "Reading…" step; the **Import button is
     always visible**, enabled only after a clean parse.
 - **2026-07-13** — Analytics + compensation + Admin role:
+
   - **Toggleable Analytics panel** on the Lead Table, role-aware: a DSC sees
     their own metrics + monthly target + earnings; BDM/Admin see team KPIs,
     the company target, a status distribution, a per-DSC table, and BDM earnings.
@@ -114,7 +115,7 @@
     config (default `project_delivered`) drives Earned (held) vs Payable.
   - **Audit trail** (`src/lib/audit.js`) + Activity sections on both sidebars.
   - **Permissions** (`src/lib/permissions.js`): single `can(user, action,
-    resource)`; **BDM cannot approve** (money-control conflict of interest).
+resource)`; **BDM cannot approve** (money-control conflict of interest).
   - Rebuilt Approvals (Pending grouped by lead + Approved tab with Set Delivered
     / Reverse), the Kanban (4 drag stages + read-only Started/Delivered), and the
     5 computed lead deal-count columns. `npm run lint && build` green; verified.
@@ -237,17 +238,17 @@ commercial → dates → notes) — 10 shown by default, the rest via a column-p
 
 ### 6.1 Lead status — 10 values
 
-| #   | Key                 | Label             | Set by            |
-| --- | ------------------- | ----------------- | ----------------- |
-| 1   | `new`               | New               | system (on import)|
-| 2   | `attempted`         | Attempted         | DSC / BDM         |
-| 3   | `contacted`         | Contacted         | DSC / BDM         |
-| 4   | `details_shared`    | Details Shared    | DSC / BDM         |
-| 5   | `interested`        | Interested        | DSC / BDM         |
-| 6   | `meeting_scheduled` | Meeting Scheduled | DSC / BDM         |
-| 7   | `meeting_done`      | Meeting Done      | DSC / BDM         |
-| 8   | `in_discussion`     | In Discussion     | **derived**       |
-| 9   | `won`               | Won               | **derived**       |
+| #   | Key                 | Label             | Set by             |
+| --- | ------------------- | ----------------- | ------------------ |
+| 1   | `new`               | New               | system (on import) |
+| 2   | `attempted`         | Attempted         | DSC / BDM          |
+| 3   | `contacted`         | Contacted         | DSC / BDM          |
+| 4   | `details_shared`    | Details Shared    | DSC / BDM          |
+| 5   | `interested`        | Interested        | DSC / BDM          |
+| 6   | `meeting_scheduled` | Meeting Scheduled | DSC / BDM          |
+| 7   | `meeting_done`      | Meeting Done      | DSC / BDM          |
+| 8   | `in_discussion`     | In Discussion     | **derived**        |
+| 9   | `won`               | Won               | **derived**        |
 | 10  | `lost`              | Lost              | DSC / BDM (gated)  |
 
 - **Why derived?** Proposal Sent and Negotiation now live on the **deal**, not

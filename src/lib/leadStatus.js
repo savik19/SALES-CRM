@@ -92,8 +92,8 @@ export function manualStatusOptions(lead, deals, labelOf) {
     reason: locked
       ? "This lead is Won (has an approved deal)."
       : !lostAllowed
-      ? "Can't mark Lost while an approved deal exists."
-      : "",
+        ? "Can't mark Lost while an approved deal exists."
+        : "",
   });
   return opts;
 }
@@ -102,7 +102,10 @@ export function manualStatusOptions(lead, deals, labelOf) {
 // Returns { ok, reason }. Rejects derived statuses and a gated `lost`.
 export function validateLeadStatusWrite(lead, deals, next) {
   if (next === LEAD_STATUS.IN_DISCUSSION || next === LEAD_STATUS.WON) {
-    return { ok: false, reason: `"${next}" is derived and cannot be set directly.` };
+    return {
+      ok: false,
+      reason: `"${next}" is derived and cannot be set directly.`,
+    };
   }
   if (!MANUAL_LEAD_STATUSES.includes(next) && next !== LEAD_STATUS.LOST) {
     return { ok: false, reason: `Unknown lead status "${next}".` };
@@ -111,7 +114,10 @@ export function validateLeadStatusWrite(lead, deals, next) {
     return { ok: false, reason: "Lead is Won; its status is locked." };
   }
   if (next === LEAD_STATUS.LOST && !canSetLost(lead, deals)) {
-    return { ok: false, reason: "Can't set Lost while an approved deal exists." };
+    return {
+      ok: false,
+      reason: "Can't set Lost while an approved deal exists.",
+    };
   }
   return { ok: true, reason: "" };
 }

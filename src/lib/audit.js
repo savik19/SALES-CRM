@@ -63,7 +63,15 @@ export function recordAudit({
 
 // Diff a patch against the current record and record one entry per tracked field
 // that actually changed. `fields` is an allow-list of {key, label} to watch.
-export function recordChanges({ entityType, entityId, before, patch, fields, actor, reason }) {
+export function recordChanges({
+  entityType,
+  entityId,
+  before,
+  patch,
+  fields,
+  actor,
+  reason,
+}) {
   const out = [];
   for (const { key, label } of fields) {
     if (!(key in patch)) continue;

@@ -17,7 +17,12 @@ import { dscName, USER_BY_ID } from "@/data/mockLeads";
 import { findOffering, singleDealCommission } from "@/lib/commission";
 import { canApprove, can } from "@/lib/permissions";
 import { DEAL_APPROVAL, DEAL_STAGE } from "@/lib/statuses";
-import { formatINR, formatDate, discountPct, discountPctLabel } from "@/lib/format";
+import {
+  formatINR,
+  formatDate,
+  discountPct,
+  discountPctLabel,
+} from "@/lib/format";
 
 // Approvals (Admin). A DSC's request to start a project lands here, grouped under
 // its lead. Approving credits the deal (stage → Project Started, commission
@@ -275,9 +280,14 @@ export default function ApprovalsPage() {
                             <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
                               <Figure
                                 label="Pitched"
-                                value={money(req.quotedAmount ?? deal.quotedAmount)}
+                                value={money(
+                                  req.quotedAmount ?? deal.quotedAmount
+                                )}
                               />
-                              <Figure label="Final" value={money(finalOf(deal))} />
+                              <Figure
+                                label="Final"
+                                value={money(finalOf(deal))}
+                              />
                               <Figure
                                 label="Discount"
                                 value={discountPctLabel({
@@ -352,7 +362,9 @@ export default function ApprovalsPage() {
                     <th className="px-4 py-2 font-semibold">Offering</th>
                     <th className="px-4 py-2 font-semibold">Owner</th>
                     <th className="px-4 py-2 font-semibold">Stage</th>
-                    <th className="px-4 py-2 text-right font-semibold">Final</th>
+                    <th className="px-4 py-2 text-right font-semibold">
+                      Final
+                    </th>
                     <th className="px-4 py-2 font-semibold">Approved</th>
                     {isAdmin ? (
                       <th className="px-4 py-2 font-semibold">Actions</th>

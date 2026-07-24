@@ -17,16 +17,9 @@
 
 import { MOCK_DEALS } from "@/data/mockDeals";
 import { API_BASE_URL, USE_MOCK_DATA } from "@/lib/config";
-import {
-  DEAL_STAGE,
-  DEAL_APPROVAL,
-  labelOf,
-} from "@/lib/statuses";
+import { DEAL_STAGE, DEAL_APPROVAL, labelOf } from "@/lib/statuses";
 import { recordAudit } from "@/lib/audit";
-import {
-  recordLedgerEntry,
-  ENTRY_TYPE,
-} from "@/lib/commissionLedger";
+import { recordLedgerEntry, ENTRY_TYPE } from "@/lib/commissionLedger";
 
 function simulateLatency(value, ms = 150) {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms));
@@ -290,7 +283,9 @@ export async function rejectDeal(dealId, { actor, reason, decidedDate }) {
  */
 export async function deliverDeal(dealId, { actor, config, date }) {
   if (!USE_MOCK_DATA)
-    return apiSend("POST", `/api/deals/${dealId}/deliver`, { adminId: actor?.id });
+    return apiSend("POST", `/api/deals/${dealId}/deliver`, {
+      adminId: actor?.id,
+    });
   const d = date || today();
   const patched = mockPatch(dealId, {
     stage: DEAL_STAGE.PROJECT_DELIVERED,

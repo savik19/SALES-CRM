@@ -98,7 +98,11 @@ export function buildEntry({
 export function rollupLedger(entries) {
   const byDeal = new Map();
   for (const e of entries || []) {
-    const cur = byDeal.get(e.dealId) || { accrued: 0, released: 0, reversed: 0 };
+    const cur = byDeal.get(e.dealId) || {
+      accrued: 0,
+      released: 0,
+      reversed: 0,
+    };
     if (e.type === ENTRY_TYPE.ACCRUAL) cur.accrued += e.amount;
     else if (e.type === ENTRY_TYPE.RELEASE) cur.released += e.amount;
     else if (e.type === ENTRY_TYPE.REVERSAL) cur.reversed += -e.amount; // magnitude
