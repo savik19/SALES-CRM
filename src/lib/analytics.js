@@ -92,7 +92,9 @@ export function dealMetrics(deals, ym) {
   return { dealsWon, wonValue, openValue, dealsCreated };
 }
 
-// Metrics for a set of leads, scoped to a "YYYY-MM" month `ym`.
+// Lead-FUNNEL metrics for a set of leads, scoped to a "YYYY-MM" month `ym`. This
+// measures prospecting only — money (won/wonValue/pipelineValue) comes from the
+// DEALS and is merged in by `mergedMetrics`, since the lead carries no money.
 // ALL-TIME (any status, not month-scoped):
 //   totalLeads   — every lead ever assigned
 //   uncontacted  — leads never contacted yet (no last-contact date)
@@ -102,9 +104,6 @@ export function dealMetrics(deals, ym) {
 //   meetingScheduled — currently "Meeting Scheduled" and worked in the month
 //   meetingDone      — currently "Meeting Done" and worked in the month
 //   followUpsDue     — nextFollowUpDate in the month
-//   won              — a won lead whose closedDate is in the month
-//   wonValue         — Σ closedAmount of those won leads
-//   pipelineValue    — Σ quotedAmount of OPEN leads worked in the month
 // `byStatus` is the current all-time distribution (for the status bars).
 export function monthMetrics(leads, ym) {
   const byStatus = {};
@@ -115,9 +114,6 @@ export function monthMetrics(leads, ym) {
   let meetingScheduled = 0;
   let meetingDone = 0;
   let followUpsDue = 0;
-  let won = 0;
-  let wonValue = 0;
-  let pipelineValue = 0;
 
   for (const l of leads) {
     byStatus[l.leadStatus] = (byStatus[l.leadStatus] || 0) + 1;
@@ -130,12 +126,6 @@ export function monthMetrics(leads, ym) {
     if (l.leadStatus === "Meeting Scheduled" && worked) meetingScheduled += 1;
     if (l.leadStatus === "Meeting Done" && worked) meetingDone += 1;
     if (inMonth(l.nextFollowUpDate, ym)) followUpsDue += 1;
-    if (isWon(l.leadStatus) && inMonth(l.closedDate, ym)) {
-      won += 1;
-      wonValue += Number(l.closedAmount) || 0;
-    } else if (isActive(l.leadStatus) && worked) {
-      pipelineValue += Number(l.quotedAmount) || 0;
-    }
   }
 
   return {
@@ -147,9 +137,6 @@ export function monthMetrics(leads, ym) {
     meetingScheduled,
     meetingDone,
     followUpsDue,
-    won,
-    wonValue,
-    pipelineValue,
   };
 }
 

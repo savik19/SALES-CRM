@@ -260,47 +260,10 @@ export const COLUMNS = [
     aliases: [],
     width: 190,
   },
-  {
-    key: "quotedAmount",
-    label: "Quoted Amount",
-    group: "Commercial",
-    defaultVisible: true,
-    sortType: "number",
-    inImportSheet: false,
-    aliases: [],
-    width: 140,
-  },
-  {
-    key: "closedAmount",
-    label: "Closed Amount",
-    group: "Commercial",
-    defaultVisible: true,
-    sortType: "number",
-    inImportSheet: false,
-    aliases: [],
-    width: 140,
-  },
-  {
-    key: "discountPct",
-    label: "Discount %",
-    group: "Commercial",
-    defaultVisible: true,
-    sortType: "discount",
-    inImportSheet: false,
-    computed: true,
-    aliases: [],
-    width: 110,
-  },
-  {
-    key: "lostReason",
-    label: "Lost Reason",
-    group: "Commercial",
-    defaultVisible: true,
-    sortType: "text",
-    inImportSheet: false,
-    aliases: [],
-    width: 170,
-  },
+  // NOTE: Quoted / Closed / Discount / Lost Reason used to live here. Under the
+  // Lead → Deal model money lives on the DEAL (one deal = one offering), so those
+  // columns were removed from the lead. The three service arrays above stay as the
+  // DSC's knowledge tags; Services Interested drives what deals can be created.
 ];
 
 // ---- Pure selectors over a columns array (works for the live/edited config) -

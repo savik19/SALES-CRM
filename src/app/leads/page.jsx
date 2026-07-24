@@ -603,7 +603,9 @@ export default function LeadsPage() {
     setAllLeads((rows) => [...newLeads, ...rows]);
   }
 
-  // ---- Lead → Deal: interest + deal creation -------------------------------
+  // ---- Lead → Deal: deal creation from Services Interested -----------------
+  // The active catalog offerings, keyed by their display name so we can match a
+  // lead's Services Interested (which stores service NAMES) to offerings.
   const catalogOfferings = useMemo(
     () =>
       [...(config.services || []), ...(config.products || [])]
@@ -612,20 +614,17 @@ export default function LeadsPage() {
     [config]
   );
 
-  const canManageDeals = detailLead ? canEditLead(detailLead) : false;
-
-  // Toggle an offering in ANY lead's interest list (non-binding).
-  function toggleInterestFor(lead, offeringId) {
-    if (!lead || !canEditLead(lead)) return;
-    const current = lead.interestedOfferingIds || [];
-    const next = current.includes(offeringId)
-      ? current.filter((id) => id !== offeringId)
-      : [...current, offeringId];
-    handleFieldChange(lead.leadId, { interestedOfferingIds: next });
+  // The offerings a deal can be created for = the lead's Services Interested that
+  // map to an active catalog offering. This is what the create-deal dropdown shows.
+  function interestedOfferingsFor(lead) {
+    const names = new Set(lead?.servicesInterested || []);
+    return catalogOfferings.filter((o) => names.has(o.name));
   }
 
+  const canManageDeals = detailLead ? canEditLead(detailLead) : false;
+
   // Create one deal (one offering) under the lead from the modal.
-  function submitCreateDeal({ offeringId, quotedAmount, note }) {
+  function submitCreateDeal({ offeringId, quotedAmount, closedAmount, note }) {
     const lead = createDealLead;
     if (!lead) return;
     const owner = viewer?.role === "dsc" ? viewer.id : lead.assignedDscId || "";
@@ -636,6 +635,7 @@ export default function LeadsPage() {
       ownerId: owner,
       dealStatus: "Open",
       quotedAmount,
+      closedAmount: closedAmount ?? null,
       createdDate: monthKeyOf() + "-15",
       notes: note || "",
     })
@@ -814,10 +814,8 @@ export default function LeadsPage() {
                 <LeadDealsPanel
                   lead={lead}
                   deals={dealsByLead[lead.leadId] || []}
-                  catalogOfferings={catalogOfferings}
-                  interestIds={lead.interestedOfferingIds || []}
                   canManageDeals={canEditLead(lead)}
-                  onToggleInterest={(offId) => toggleInterestFor(lead, offId)}
+                  canCreateDeal={interestedOfferingsFor(lead).length > 0}
                   onCreateDeal={(l) => setCreateDealLead(l)}
                   onOpenDeal={(deal) => dealsApi.setDetailDeal(deal)}
                   onOpenFull={(l) => setDetailLead(l)}
@@ -868,11 +866,12 @@ export default function LeadsPage() {
         onChange={handleFieldChange}
         onClose={() => setDetailLead(null)}
         deals={dealsByLead[detailLead?.leadId] || []}
-        catalogOfferings={catalogOfferings}
-        interestIds={detailLead?.interestedOfferingIds || []}
         canManageDeals={canManageDeals}
-        onToggleInterest={(offId) => toggleInterestFor(detailLead, offId)}
+        canCreateDeal={
+          detailLead ? interestedOfferingsFor(detailLead).length > 0 : false
+        }
         onCreateDeal={(lead) => setCreateDealLead(lead)}
+        onOpenDeal={(deal) => dealsApi.setDetailDeal(deal)}
       />
 
       <DealDetailSidebar
@@ -909,8 +908,7 @@ export default function LeadsPage() {
       <CreateDealModal
         open={!!createDealLead}
         lead={createDealLead}
-        offerings={catalogOfferings}
-        interestIds={createDealLead?.interestedOfferingIds || []}
+        offerings={createDealLead ? interestedOfferingsFor(createDealLead) : []}
         onSubmit={submitCreateDeal}
         onClose={() => setCreateDealLead(null)}
       />

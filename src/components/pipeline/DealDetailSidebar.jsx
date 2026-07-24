@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { dscName, DEAL_STATUSES } from "@/data/mockLeads";
+import { dscName, DEAL_STATUSES, LOST_REASONS } from "@/data/mockLeads";
 import { statusBadgeClass } from "@/components/leads/statusStyles";
 import { singleDealCommission } from "@/lib/commission";
 import { formatINR, formatDate, discountPctLabel } from "@/lib/format";
@@ -191,6 +191,38 @@ export default function DealDetailSidebar({
                 />
                 <Field label="Created" value={formatDate(deal.createdDate)} />
               </div>
+
+              {/* Lost reason — only relevant when the deal is Lost. */}
+              {deal.dealStatus === "Lost" ? (
+                <div>
+                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    Lost reason
+                  </label>
+                  {canEditStatus ? (
+                    <select
+                      value={deal.lostReason || ""}
+                      onChange={(e) =>
+                        onChangeField?.(deal.dealId, {
+                          lostReason: e.target.value,
+                        })
+                      }
+                      className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-800 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+                      aria-label="Lost reason"
+                    >
+                      <option value="">Select…</option>
+                      {LOST_REASONS.map((r) => (
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="text-sm text-slate-800">
+                      {deal.lostReason || "—"}
+                    </div>
+                  )}
+                </div>
+              ) : null}
 
               <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
                 <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">

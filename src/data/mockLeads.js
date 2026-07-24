@@ -1271,7 +1271,7 @@ const RAW_LEADS = [
     lostReason: "",
   },
   {
-    leadId: "SCRIPT8034",
+    leadId: "SCRIPT8036",
     company: "Grand Vista Hotels",
     industry: "Hospitality",
     contactPerson: "Ibrahim Khan",
@@ -1371,16 +1371,6 @@ export const OFFERING_ID_BY_NAME = {
   "SaaS Subscription": "prd-saas-subscription",
 };
 
-// The offering ids a lead is "interested in" (non-binding), derived from the
-// services it showed interest in / was pitched. Interest converts into Deals.
-export function interestedOfferingIdsFor(lead) {
-  const names =
-    (lead.servicesInterested && lead.servicesInterested.length
-      ? lead.servicesInterested
-      : lead.servicesPitched) || [];
-  return [...new Set(names.map((n) => OFFERING_ID_BY_NAME[n]).filter(Boolean))];
-}
-
 // A stable company id from the company name, so deals for the same company can be
 // grouped (a company can have many deals over time).
 function _companyId(company) {
@@ -1393,27 +1383,15 @@ function _companyId(company) {
   );
 }
 
-// Build commission line items for a won deal from the services it onboarded (or,
-// failing that, showed interest in), splitting its value across them.
-function _lineItems(lead, won) {
-  if (!won) return [];
-  const source =
-    lead.servicesOnboarded && lead.servicesOnboarded.length
-      ? lead.servicesOnboarded
-      : lead.servicesInterested && lead.servicesInterested.length
-        ? lead.servicesInterested
-        : ["Custom Software"];
-  const names = source.filter((n) => OFFERING_ID_BY_NAME[n]);
-  const list = names.length ? names : ["Custom Software"];
-  const total = Number(lead.closedAmount) || Number(lead.quotedAmount) || 0;
-  const each = Math.round(total / list.length);
-  return list.map((n) => ({
-    offeringId: OFFERING_ID_BY_NAME[n],
-    amount: each,
-  }));
-}
-
+// Under the Lead → Deal model the LEAD carries NO money. Quoted/Closed/Discount/
+// Lost Reason all live on the Deal — so we strip them here (along with the
+// legacy Company→Deal fields lineItems/interestedOfferingIds/wonApprovedDate).
+// The three service arrays (Pitched/Interested/Onboarded) stay: they are the
+// DSC's knowledge tags, and Services Interested drives which offerings a deal can
+// be created for. `assignedDate`/`closedDate` stay (dates, used to seed deals).
 function withDates(lead) {
+  // eslint-disable-next-line no-unused-vars
+  const { quotedAmount, closedAmount, lostReason, ...rest } = lead;
   const n = _num(lead.leadId);
   const back = n % 4; // assigned 0–3 months ago
   const assignedDate = _ym(back, ((n * 7) % 27) + 1);
@@ -1422,16 +1400,10 @@ function withDates(lead) {
     ? _ym(back === 0 ? 0 : n % (back + 1), ((n * 5) % 27) + 1) // same month or newer
     : "";
   return {
-    ...lead,
+    ...rest,
     companyId: _companyId(lead.company),
     assignedDate,
     closedDate,
-    // Seed existing wins as already Admin-approved so commission computes today.
-    // The approval flow sets this (and gates the win) for new deals.
-    wonApprovedDate: won ? closedDate : "",
-    lineItems: _lineItems(lead, won),
-    // Company → Deal model: the offerings this lead is interested in (→ deals).
-    interestedOfferingIds: interestedOfferingIdsFor(lead),
   };
 }
 
