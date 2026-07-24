@@ -79,9 +79,7 @@ export function buildLeadFromRow(importCols, indexByKey, row) {
   lead.servicesPitched = [];
   lead.servicesInterested = [];
   lead.servicesOnboarded = [];
-  lead.quotedAmount = null;
-  lead.closedAmount = null;
-  lead.lostReason = "";
+  // No money on the lead — quoted/closed/discount/lost-reason live on the Deal.
   return lead;
 }
 
