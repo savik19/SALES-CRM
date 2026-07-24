@@ -2,6 +2,7 @@
 
 import { formatINR, monthLabel } from "@/lib/format";
 import { isWon, isDead } from "@/lib/analytics";
+import { labelOf } from "@/lib/statuses";
 
 // ---- small building blocks -------------------------------------------------
 
@@ -90,7 +91,7 @@ function EarningsCard({ title, e, monthLbl }) {
           paid: e.targetMet,
         },
         {
-          label: "Commission (catalog · finalized)",
+          label: "Commission · Payable (released)",
           value: e.commission,
           paid: e.targetMet,
         },
@@ -148,9 +149,10 @@ function EarningsCard({ title, e, monthLbl }) {
         </div>
       </dl>
       {e.pendingCommission > 0 ? (
-        <p className="mt-2 text-xs text-slate-500">
-          {money(e.pendingCommission)} commission in the 3-month hold —
-          finalizes after the quarter (reversed if the deal cancels).
+        <p className="mt-2 rounded-md bg-amber-50 px-2.5 py-1.5 text-xs text-amber-700">
+          Earned (held): {money(e.pendingCommission)} — accrued on approval,
+          releases to Payable when the project is delivered (clawed back if the
+          deal is reversed).
         </p>
       ) : null}
       {!e.inTraining && !e.targetMet && e.atRisk > 0 ? (
@@ -180,13 +182,11 @@ function StatusBars({ byStatus, total }) {
             ? "bg-green-500"
             : isDead(status)
               ? "bg-red-400"
-              : status === "On Hold"
-                ? "bg-amber-400"
-                : "bg-brand";
+              : "bg-brand";
           return (
             <div key={status} className="flex items-center gap-2 text-xs">
               <span className="w-36 shrink-0 truncate text-slate-600">
-                {status}
+                {labelOf(status)}
               </span>
               <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
                 <div

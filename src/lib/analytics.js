@@ -5,26 +5,20 @@
 // through to what the DSC/BDM analytics show.
 // ---------------------------------------------------------------------------
 
-import { LEAD_STATUSES, CREDITED_DEAL_STATUSES } from "@/data/mockLeads";
 import { monthsSince, inMonth, isoInRange } from "@/lib/format";
-import { singleDealCommission, commissionStatus } from "@/lib/commission";
+import { commissionSplitForDeals } from "@/lib/commission";
+import { LEAD_STATUS, LEAD_STATUS_ORDER, DEAL_APPROVAL } from "@/lib/statuses";
+import { deriveLeadStatus } from "@/lib/leadStatus";
 
-// A "closed"/won deal = Won or any post-sale status (not Cancelled, which is a
-// won deal that fell apart, and not Lost / On Hold).
-export const WON_STATUSES = new Set([
-  "Won",
-  "Project Started",
-  "Project Delivered",
-  "Closed",
-]);
+// Lead-status predicates on the new 10-value model.
 export function isWon(status) {
-  return WON_STATUSES.has(status);
+  return status === LEAD_STATUS.WON;
 }
 export function isDead(status) {
-  return status === "Lost" || status === "Cancelled";
+  return status === LEAD_STATUS.LOST;
 }
 export function isActive(status) {
-  return !isWon(status) && !isDead(status) && status !== "On Hold";
+  return !isWon(status) && !isDead(status);
 }
 
 // A lead counts as "contacted" once it has a last-contact date (it's been
@@ -49,28 +43,26 @@ export function leadInPeriod(lead, from, to) {
 }
 
 // ---- Deal metrics (Lead → Deal model) -------------------------------------
-// Under the Lead → Deal model the money lives on DEALS, so won counts, won value,
-// open pipeline value, target and commission are all computed from a person's
-// deals — while the lead funnel (below) still measures prospecting activity.
-function isDealDead(status) {
-  return status === "Lost" || status === "Cancelled";
+// Money lives on DEALS: won counts, won value, open pipeline value, target and
+// commission are all computed from a person's deals — while the lead funnel
+// (below) measures prospecting activity.
+function isDealDead(d) {
+  return d.stage === "cancelled" || d.approval === DEAL_APPROVAL.REVERSED;
 }
 
-// A deal counts as won in month `ym` when it's CREDITED (Admin-approved: a gated
-// stage carrying a wonApprovedDate) and that approval date falls in the month.
-// A deal merely marked "Won" (client agreed, not yet approved) does NOT count.
+// A deal counts as won in month `ym` when it's APPROVED and its approval date
+// falls in the month. A live deal (open/proposal/negotiation) does NOT count.
 export function dealWonInMonth(deal, ym) {
   return (
-    CREDITED_DEAL_STATUSES.has(deal.dealStatus) &&
+    deal.approval === DEAL_APPROVAL.APPROVED &&
     inMonth(deal.wonApprovedDate, ym)
   );
 }
 
 // Money metrics for a set of deals, scoped to month `ym`:
-//   dealsWon    — deals credited (approved) in the month
-//   wonValue    — Σ closedAmount of those credited deals
-//   openValue   — Σ value of currently-open deals (snapshot; not credited/dead,
-//                 includes "Won" deals awaiting approval — finalized if known)
+//   dealsWon    — deals approved in the month
+//   wonValue    — Σ finalAmount of those approved deals
+//   openValue   — Σ value of currently-live deals (not approved/dead)
 //   dealsCreated— deals created in the month
 export function dealMetrics(deals, ym) {
   let dealsWon = 0;
@@ -81,12 +73,9 @@ export function dealMetrics(deals, ym) {
     if (inMonth(d.createdDate, ym)) dealsCreated += 1;
     if (dealWonInMonth(d, ym)) {
       dealsWon += 1;
-      wonValue += Number(d.closedAmount) || 0;
-    } else if (
-      !CREDITED_DEAL_STATUSES.has(d.dealStatus) &&
-      !isDealDead(d.dealStatus)
-    ) {
-      openValue += Number(d.closedAmount ?? d.quotedAmount) || 0;
+      wonValue += Number(d.finalAmount) || 0;
+    } else if (d.approval !== DEAL_APPROVAL.APPROVED && !isDealDead(d)) {
+      openValue += Number(d.finalAmount ?? d.quotedAmount) || 0;
     }
   }
   return { dealsWon, wonValue, openValue, dealsCreated };
@@ -105,9 +94,9 @@ export function dealMetrics(deals, ym) {
 //   meetingDone      — currently "Meeting Done" and worked in the month
 //   followUpsDue     — nextFollowUpDate in the month
 // `byStatus` is the current all-time distribution (for the status bars).
-export function monthMetrics(leads, ym) {
+export function monthMetrics(leads, ym, deals = []) {
   const byStatus = {};
-  LEAD_STATUSES.forEach((s) => (byStatus[s] = 0));
+  LEAD_STATUS_ORDER.forEach((s) => (byStatus[s] = 0));
   let uncontacted = 0;
   let newAssigned = 0;
   let contacted = 0;
@@ -116,15 +105,18 @@ export function monthMetrics(leads, ym) {
   let followUpsDue = 0;
 
   for (const l of leads) {
-    byStatus[l.leadStatus] = (byStatus[l.leadStatus] || 0) + 1;
+    // The DISPLAYED status is derived from the lead's deals.
+    const status = deriveLeadStatus(l, deals);
+    byStatus[status] = (byStatus[status] || 0) + 1;
     if (!isContacted(l)) uncontacted += 1;
 
     const worked =
       inMonth(l.lastContactDate, ym) || inMonth(l.assignedDate, ym);
     if (inMonth(l.assignedDate, ym)) newAssigned += 1;
     if (inMonth(l.lastContactDate, ym)) contacted += 1;
-    if (l.leadStatus === "Meeting Scheduled" && worked) meetingScheduled += 1;
-    if (l.leadStatus === "Meeting Done" && worked) meetingDone += 1;
+    if (l.leadStatus === LEAD_STATUS.MEETING_SCHEDULED && worked)
+      meetingScheduled += 1;
+    if (l.leadStatus === LEAD_STATUS.MEETING_DONE && worked) meetingDone += 1;
     if (inMonth(l.nextFollowUpDate, ym)) followUpsDue += 1;
   }
 
@@ -227,28 +219,20 @@ export function personEarnings({
   };
 }
 
-// Price a set of won deals through the catalog for `role`, splitting the total
-// into finalized (past the quarterly hold → payable now) and pending (still in
-// the hold). Each deal is ONE offering priced on its closed amount (Lead → Deal
-// model). Reversed/unapproved deals contribute 0. `now` is injectable.
-export function commissionForDeals(deals, config, role, now = new Date()) {
-  let finalized = 0;
-  let pending = 0;
-  for (const deal of deals) {
-    const status = commissionStatus(deal, now);
-    if (status !== "finalized" && status !== "pending") continue;
-    const amount = singleDealCommission(deal, config, role);
-    if (status === "finalized") finalized += amount;
-    else pending += amount;
-  }
-  return { finalized, pending, total: finalized + pending };
+// Price a set of approved deals through the catalog for `role`, splitting into
+// PAYABLE (released) vs HELD (earned but not yet released), under the config's
+// commissionReleaseTrigger. Reversed/unapproved deals contribute 0.
+export function commissionForDeals(deals, config, role) {
+  const { held, payable, total } = commissionSplitForDeals(deals, config, role);
+  // `finalized` = payable now, `pending` = held (kept names for personEarnings).
+  return { finalized: payable, pending: held, total };
 }
 
 // Merge a person's lead funnel (prospecting) with their DEAL money metrics, so
 // the panel's `won` / `wonValue` / `pipelineValue` reflect DEALS (the unit of
 // sale) while the funnel counts (contacted, meetings, follow-ups…) stay leads.
 function mergedMetrics(ownLeads, ownDeals, ym) {
-  const funnel = monthMetrics(ownLeads, ym);
+  const funnel = monthMetrics(ownLeads, ym, ownDeals);
   const dm = dealMetrics(ownDeals, ym);
   return {
     ...funnel,

@@ -1,17 +1,12 @@
 "use client";
 
-import { statusBadgeClass } from "@/components/leads/statusStyles";
+import { StageBadge, ApprovalBadge } from "@/components/leads/LeadStatusBadge";
 import { formatINR, discountPctLabel } from "@/lib/format";
 
 // The row-expansion body in the Lead (prospect) view: what the lead is
 // interested in, and the DEALS created under it (one offering each). This is the
 // "see the lead broadly, and the deals inside it" surface. Editing a deal opens
 // the deal detail; full lead fields live in the side panel ("Full details").
-const APPROVAL_BADGE = {
-  pending: "bg-amber-100 text-amber-700",
-  approved: "bg-green-100 text-green-700",
-  rejected: "bg-red-100 text-red-700",
-};
 
 export default function LeadDealsPanel({
   lead,
@@ -71,13 +66,11 @@ export default function LeadDealsPanel({
               <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-400">
                 <tr>
                   <th className="px-3 py-2 font-semibold">Offering</th>
-                  <th className="px-3 py-2 font-semibold">Status</th>
+                  <th className="px-3 py-2 font-semibold">Stage</th>
                   <th className="px-3 py-2 text-right font-semibold">
                     Pitched
                   </th>
-                  <th className="px-3 py-2 text-right font-semibold">
-                    Finalized
-                  </th>
+                  <th className="px-3 py-2 text-right font-semibold">Final</th>
                   <th className="px-3 py-2 text-right font-semibold">
                     Discount
                   </th>
@@ -95,31 +88,19 @@ export default function LeadDealsPanel({
                       {d.offeringName}
                     </td>
                     <td className="px-3 py-2">
-                      <span
-                        className={`inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${statusBadgeClass(d.dealStatus)}`}
-                      >
-                        {d.dealStatus}
-                      </span>
+                      <StageBadge stage={d.stage} />
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-slate-600">
                       {d.quotedAmount != null ? formatINR(d.quotedAmount) : "—"}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-slate-600">
-                      {d.closedAmount != null ? formatINR(d.closedAmount) : "—"}
+                      {d.finalAmount != null ? formatINR(d.finalAmount) : "—"}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-slate-500">
                       {discountPctLabel(d)}
                     </td>
                     <td className="px-3 py-2">
-                      {APPROVAL_BADGE[d.approvalStatus] ? (
-                        <span
-                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${APPROVAL_BADGE[d.approvalStatus]}`}
-                        >
-                          {d.approvalStatus}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-slate-400">—</span>
-                      )}
+                      <ApprovalBadge approval={d.approval} />
                     </td>
                   </tr>
                 ))}

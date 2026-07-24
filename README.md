@@ -74,11 +74,23 @@ works unchanged.
 
 ## Build status
 
-- ✅ **1. Lead Table** — sortable columns, search, status + DSC filters,
-  colour-coded badges, row-click detail panel with the full field set + inline
-  status changer, overdue-follow-up highlight, DSC-vs-BDM scoping preview.
-- 🔜 **2. Pipeline / Kanban** → Analytics → KPIs → role-based dashboards
-  (see [`docs/ROADMAP.md`](docs/ROADMAP.md)).
+- ✅ **Lead Table** — configurable columns, search, filters, row-click detail
+  with inline editing, the **Leads | Deals** toggle, the 10-value lead status
+  (derived `in_discussion` / `won` badges), and five computed deal-count columns.
+- ✅ **Pipeline / Kanban** — deals board: 4 drag stages (Open · Proposal Sent ·
+  Negotiation · Cancelled) + read-only Started / Delivered columns; approval
+  filter; pending deals locked.
+- ✅ **Approvals** — Admin queue grouped by lead (commission-to-credit,
+  discount-over-20% flag, bulk approve, reason-required reject) + an Approved tab
+  (Set Delivered / Reverse). The BDM sees it read-only.
+- ✅ **Analytics** — role-aware KPIs, deal-based targets, and commission split
+  into **Earned (held)** vs **Payable**.
+- ✅ **Settings** — User Management, Column Mapping, Compensation (per-role
+  packages, offering catalog, commission-release trigger).
+
+Business rules live in pure modules (`src/lib/statuses.js`, `leadStatus.js`,
+`permissions.js`, `commission.js`, `commissionLedger.js`, `audit.js`); see
+[`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Deployment
 

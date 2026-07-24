@@ -47,9 +47,19 @@ function Cell({ column, lead, onOpenDetail }) {
         </button>
       );
     case "leadStatus":
-      return <StatusBadge status={lead.leadStatus} />;
+      // Show the DERIVED status (falls back to the stored one).
+      return <StatusBadge status={lead.derivedStatus || lead.leadStatus} />;
     case "priority":
       return <PriorityBadge priority={lead.priority} />;
+    case "dealsTotal":
+    case "dealsLive":
+    case "dealsStarted":
+    case "dealsDelivered":
+      return <span className="tabular-nums">{value ?? 0}</span>;
+    case "wonValue":
+      return (
+        <span className="tabular-nums">{value ? formatINR(value) : "—"}</span>
+      );
     case "assignedDscId":
       return value ? (
         <span className="truncate">{dscName(value)}</span>
@@ -70,7 +80,10 @@ function Cell({ column, lead, onOpenDetail }) {
     case "lastContactDate":
       return <span>{formatDate(value)}</span>;
     case "nextFollowUpDate": {
-      const overdue = isOnOrBefore(value);
+      // Suppress the overdue highlight for won / lost leads (nothing to chase).
+      const status = lead.derivedStatus || lead.leadStatus;
+      const overdue =
+        isOnOrBefore(value) && status !== "won" && status !== "lost";
       return (
         <span
           className={overdue ? "font-medium text-red-600" : ""}

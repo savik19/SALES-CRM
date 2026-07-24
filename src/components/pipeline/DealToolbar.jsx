@@ -3,6 +3,7 @@
 import MultiSelectDropdown from "@/components/leads/MultiSelectDropdown";
 import { dscName } from "@/data/mockLeads";
 import { formatINR, monthLabel } from "@/lib/format";
+import { labelOf } from "@/lib/statuses";
 
 // Read-only stat in the overview strip.
 function Stat({ label, value, tone = "slate", title }) {
@@ -31,12 +32,14 @@ function Stat({ label, value, tone = "slate", title }) {
 // Filters shown on the deal board. Status is the deal stage; Owner is the DSC who
 // owns the deal (only shown to a manager viewing the whole team).
 const FILTER_DEFS = [
-  { key: "dealStatus", label: "Status" },
+  { key: "stage", label: "Stage" },
+  { key: "approval", label: "Approval" },
   { key: "ownerId", label: "Owner" },
 ];
 
 function chipLabel(key, value) {
-  return key === "ownerId" ? dscName(value) : value;
+  if (key === "ownerId") return dscName(value);
+  return labelOf(value);
 }
 
 function rangeChipLabel(from, to) {

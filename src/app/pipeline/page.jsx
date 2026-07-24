@@ -8,19 +8,20 @@ import DealToolbar from "@/components/pipeline/DealToolbar";
 import DealDetailSidebar from "@/components/pipeline/DealDetailSidebar";
 import DealWinRequestModal from "@/components/pipeline/DealWinRequestModal";
 import { useCompConfig } from "@/lib/compConfig";
-import { useDeals, DEAD_DEAL_STATUSES } from "@/lib/useDeals";
+import { useDeals } from "@/lib/useDeals";
+import { USER_BY_ID } from "@/data/mockLeads";
 import {
-  USER_BY_ID,
-  DEAL_STATUSES,
-  CREDITED_DEAL_STATUSES,
-} from "@/data/mockLeads";
+  DEAL_STAGE_OPTIONS,
+  DEAL_APPROVAL_OPTIONS,
+  DEAL_APPROVAL,
+  KANBAN_STAGES,
+} from "@/lib/statuses";
 import { useActiveDscs, useUsers } from "@/lib/usersConfig";
 import { monthRange, recentMonths, monthKeyOf, isoInRange } from "@/lib/format";
 
-const EMPTY_FILTERS = { dealStatus: [], ownerId: [] };
+const EMPTY_FILTERS = { stage: [], approval: [], ownerId: [] };
 const SEARCH_KEYS = ["company", "offeringName"];
 
-// A deal is "in" the period if it was created or won within it.
 function dealInPeriod(deal, from, to) {
   if (!from && !to) return true;
   return (
@@ -29,25 +30,21 @@ function dealInPeriod(deal, from, to) {
   );
 }
 
-// Pipeline / Kanban board of DEALS (Lead → Deal model). Each card is one offering
-// under a company; drag a card between stages — or use the card's status select —
-// to move the deal. The DSC moves it freely up to "Won"; advancing to
-// "Project Started" needs the finalized amount + Admin approval (the money event
-// that credits target + commission). Mirrors the Lead Table's role model: a DSC
-// sees only their own deals; a manager can focus on the team, their own, or a DSC.
+// Pipeline / Kanban board of DEALS. Columns are the 4 user-controllable stages
+// (Open · Proposal Sent · Negotiation · Cancelled) plus two read-only trailing
+// columns (Started · Delivered) set by Admin approval. Advancing to Project
+// Started needs the finalized amount + Admin approval (the money event).
 export default function PipelinePage() {
   const dscs = useActiveDscs();
   const { users } = useUsers();
   const { config } = useCompConfig();
 
-  // ---- Role (demo switcher; real auth replaces this) -----------------------
   const [viewerId, setViewerId] = useState("u-prakhar");
   const viewer = users.find((u) => u.id === viewerId) || USER_BY_ID[viewerId];
   const isAdmin = viewer?.role === "admin";
   const isBDM = viewer?.role === "bdm";
   const isManager = isBDM || isAdmin;
 
-  // ---- Manager focus: "team" | "self" (BDM's own) | a DSC id ----------------
   const [focus, setFocus] = useState("team");
   useEffect(() => {
     setFocus(viewer?.role === "bdm" ? "self" : "team");
@@ -72,11 +69,9 @@ export default function PipelinePage() {
     }
   }, [users, viewerId]);
 
-  // ---- Deal data + actions (shared hook; also used by the Lead Table) ------
-  const dealsApi = useDeals({ viewerId, isManager, focusIsDsc, config });
+  const dealsApi = useDeals({ user: viewer, focusIsDsc, config });
   const { deals: allDeals, loading } = dealsApi;
 
-  // ---- Scoping by focus (owner) --------------------------------------------
   const scopeUserId =
     effFocus === "team" ? null : focusIsDsc ? effFocus : viewerId;
   const roleScoped = useMemo(() => {
@@ -84,7 +79,6 @@ export default function PipelinePage() {
     return allDeals.filter((d) => d.ownerId === scopeUserId);
   }, [allDeals, effFocus, scopeUserId]);
 
-  // ---- Period (month selector, or a calendar range that overrides it) -------
   const monthOptions = useMemo(() => recentMonths(6), []);
   const [periodMonth, setPeriodMonth] = useState(() => monthKeyOf());
   const [dateFrom, setDateFrom] = useState("");
@@ -102,11 +96,16 @@ export default function PipelinePage() {
     [roleScoped, period]
   );
 
-  // ---- Filters -------------------------------------------------------------
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [toast, setToast] = useState("");
 
-  // The Owner filter only shows in team focus. Drop any selection when hidden.
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(""), 3200);
+    return () => clearTimeout(t);
+  }, [toast]);
+
   useEffect(() => {
     if (effFocus !== "team") {
       setFilters((f) => (f.ownerId.length ? { ...f, ownerId: [] } : f));
@@ -133,7 +132,8 @@ export default function PipelinePage() {
   const showOwnerFilter = isManager && effFocus === "team";
 
   const filterOptions = {
-    dealStatus: DEAL_STATUSES,
+    stage: DEAL_STAGE_OPTIONS,
+    approval: DEAL_APPROVAL_OPTIONS,
     ownerId: [
       { value: "", label: "Unassigned" },
       ...dscs.map((d) => ({ value: d.id, label: d.name })),
@@ -143,10 +143,9 @@ export default function PipelinePage() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return periodScoped.filter((deal) => {
-      if (
-        filters.dealStatus.length &&
-        !filters.dealStatus.includes(deal.dealStatus)
-      )
+      if (filters.stage.length && !filters.stage.includes(deal.stage))
+        return false;
+      if (filters.approval.length && !filters.approval.includes(deal.approval))
         return false;
       if (filters.ownerId.length && !filters.ownerId.includes(deal.ownerId))
         return false;
@@ -160,56 +159,60 @@ export default function PipelinePage() {
     });
   }, [periodScoped, search, filters]);
 
-  // Which status columns to render: the selected ones (in pipeline order), or
-  // every stage when nothing is selected.
-  const visibleStatuses = useMemo(
-    () =>
-      filters.dealStatus.length
-        ? DEAL_STATUSES.filter((s) => filters.dealStatus.includes(s))
-        : DEAL_STATUSES,
-    [filters.dealStatus]
-  );
-
-  // ---- Deal stats (over the board book, independent of search/filters) ------
   const stats = useMemo(() => {
     let openValue = 0;
     let won = 0;
     let wonValue = 0;
     let pending = 0;
     for (const d of periodScoped) {
-      if (CREDITED_DEAL_STATUSES.has(d.dealStatus)) {
+      if (d.approval === DEAL_APPROVAL.APPROVED) {
         won += 1;
-        wonValue += Number(d.closedAmount) || 0;
-      } else if (!DEAD_DEAL_STATUSES.has(d.dealStatus)) {
-        openValue += Number(d.closedAmount ?? d.quotedAmount) || 0;
+        wonValue += Number(d.finalAmount) || 0;
+      } else if (
+        d.approval !== DEAL_APPROVAL.REVERSED &&
+        d.stage !== "cancelled"
+      ) {
+        openValue += Number(d.finalAmount ?? d.quotedAmount) || 0;
       }
-      if (d.approvalStatus === "pending") pending += 1;
+      if (d.approval === DEAL_APPROVAL.PENDING) pending += 1;
     }
     return { total: periodScoped.length, openValue, won, wonValue, pending };
   }, [periodScoped]);
 
-  // Move / edit / approval logic all live in the useDeals hook so the Pipeline
-  // and the Lead Table's Deals view behave identically.
   const {
-    canEditDeal,
+    canEditStage,
+    selectableStages,
     canEditAmounts,
-    canRequestWin,
+    approvalEligibility,
+    canWithdraw,
     detailDeal,
     setDetailDeal,
     moveDeal,
     editDeal,
     winDeal,
-    winToStatus,
     openWinRequest,
     submitWinRequest,
     closeWinRequest,
+    withdrawRequest,
+    approveDealAction,
+    rejectDealAction,
+    deliverDealAction,
+    reverseDealAction,
   } = dealsApi;
+
+  // A card is draggable only when it is pre-approval and this viewer may edit it.
+  const canDrag = (deal) =>
+    (deal.approval === DEAL_APPROVAL.NOT_REQUESTED ||
+      deal.approval === DEAL_APPROVAL.REJECTED) &&
+    canEditStage(deal);
+  // On the board, editable cards only offer the 4 kanban stages.
+  const boardSelectable = (deal) => (canDrag(deal) ? KANBAN_STAGES : []);
 
   const subtitle = focusIsDsc
     ? `Viewing ${focusDsc.name}'s deals (read-only)`
     : effFocus === "self"
       ? `${viewer?.name}'s deals`
-      : "Drag a deal between stages — starting a project needs Admin approval";
+      : "Drag between stages — starting a project needs Admin approval";
 
   return (
     <div className="flex h-full flex-col">
@@ -262,7 +265,7 @@ export default function PipelinePage() {
         />
       ) : null}
 
-      <div className="flex-1 overflow-hidden">
+      <div className="relative flex-1 overflow-hidden">
         {loading ? (
           <div className="px-6 py-20 text-center text-sm text-slate-500">
             Loading pipeline…
@@ -276,31 +279,46 @@ export default function PipelinePage() {
         ) : (
           <DealBoard
             deals={filtered}
-            statuses={visibleStatuses}
-            moveOptions={DEAL_STATUSES}
+            selectableStages={boardSelectable}
+            canDrag={canDrag}
             onMove={moveDeal}
+            onReject={setToast}
             onOpen={setDetailDeal}
-            canEdit={canEditDeal}
           />
         )}
+
+        {toast ? (
+          <div className="pointer-events-none absolute bottom-4 left-1/2 z-20 -translate-x-1/2 rounded-lg bg-slate-900 px-4 py-2 text-sm text-white shadow-lg">
+            {toast}
+          </div>
+        ) : null}
       </div>
 
       <DealDetailSidebar
         deal={detailDeal}
         config={config}
-        canEditStatus={canEditDeal(detailDeal)}
+        selectableStages={selectableStages}
         canEditAmounts={canEditAmounts(detailDeal)}
-        canRequestWin={canRequestWin(detailDeal)}
-        onChangeStatus={moveDeal}
+        approvalEligibility={approvalEligibility}
+        canWithdraw={canWithdraw(detailDeal)}
+        isAdmin={isAdmin}
+        onChangeStage={(id, stage) => {
+          const res = moveDeal(id, stage);
+          if (res && !res.ok) setToast(res.reason);
+        }}
         onChangeField={editDeal}
-        onRequestWin={(deal) => openWinRequest(deal, "Project Started")}
+        onRequestWin={openWinRequest}
+        onWithdraw={withdrawRequest}
+        onApprove={approveDealAction}
+        onReject={rejectDealAction}
+        onDeliver={deliverDealAction}
+        onReverse={reverseDealAction}
         onClose={() => setDetailDeal(null)}
       />
 
       <DealWinRequestModal
         open={!!winDeal}
         deal={winDeal}
-        toStatus={winToStatus}
         requestedBy={viewerId}
         today={monthKeyOf() + "-15"}
         onSubmit={submitWinRequest}

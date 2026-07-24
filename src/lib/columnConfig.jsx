@@ -14,7 +14,7 @@ import { COLUMNS as DEFAULT_COLUMNS } from "@/components/leads/columns";
 
 // v2: the money columns (Quoted/Closed/Discount/Lost Reason) moved off the lead
 // onto the deal — bump the key so saved configs re-seed from the new defaults.
-const STORAGE_KEY = "sg-crm-columns-v2";
+const STORAGE_KEY = "sg-crm-columns-v3";
 const ColumnConfigContext = createContext(null);
 
 function cloneDefaults() {

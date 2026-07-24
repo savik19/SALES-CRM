@@ -37,14 +37,27 @@ import {
   isoInRange,
 } from "@/lib/format";
 import {
-  LEAD_STATUSES,
-  DEAL_STATUSES,
   PRIORITIES,
   INDUSTRIES,
   LEAD_SOURCES,
   USER_BY_ID,
   dscName,
 } from "@/data/mockLeads";
+import {
+  LEAD_STATUS_ORDER,
+  LEAD_STATUS_OPTIONS,
+  DEAL_STAGE_ORDER,
+  DEAL_STAGE_OPTIONS,
+  DEAL_APPROVAL_OPTIONS,
+  DEAL_STAGE,
+} from "@/lib/statuses";
+import {
+  deriveLeadStatus,
+  leadDealCounts,
+  validateLeadStatusWrite,
+} from "@/lib/leadStatus";
+import { recordAudit } from "@/lib/audit";
+import { labelOf } from "@/lib/statuses";
 
 const EMPTY_FILTERS = {
   leadStatus: [],
@@ -56,10 +69,10 @@ const EMPTY_FILTERS = {
 };
 
 const EMPTY_DEAL_FILTERS = {
-  dealStatus: [],
+  stage: [],
   ownerId: [],
   offeringKind: [],
-  approvalStatus: [],
+  approval: [],
 };
 
 const PAGE_SIZE = 20; // rows per page in either table
@@ -96,8 +109,8 @@ function compareLeads(a, b, column, dir) {
   switch (column.sortType) {
     case "status":
       return (
-        (LEAD_STATUSES.indexOf(a.leadStatus) -
-          LEAD_STATUSES.indexOf(b.leadStatus)) *
+        (LEAD_STATUS_ORDER.indexOf(a.derivedStatus || a.leadStatus) -
+          LEAD_STATUS_ORDER.indexOf(b.derivedStatus || b.leadStatus)) *
         factor
       );
     case "priority":
@@ -132,22 +145,22 @@ function compareDeals(a, b, key, dir) {
   const factor = dir === "asc" ? 1 : -1;
   switch (key) {
     case "quotedAmount":
-    case "closedAmount":
+    case "finalAmount":
       return compareNumbers(a[key], b[key], factor);
     case "discount":
       return compareNumbers(discountPct(a), discountPct(b), factor);
     case "createdDate":
       return compareDate(a.createdDate, b.createdDate, factor);
-    case "dealStatus":
+    case "stage":
       return (
-        (DEAL_STATUSES.indexOf(a.dealStatus) -
-          DEAL_STATUSES.indexOf(b.dealStatus)) *
+        (DEAL_STAGE_ORDER.indexOf(a.stage) -
+          DEAL_STAGE_ORDER.indexOf(b.stage)) *
         factor
       );
     case "ownerId":
       return dscName(a.ownerId).localeCompare(dscName(b.ownerId)) * factor;
     case "approval":
-      return compareText(a.approvalStatus, b.approvalStatus, factor);
+      return compareText(a.approval, b.approval, factor);
     default:
       return compareText(a[key], b[key], factor);
   }
@@ -222,8 +235,14 @@ export default function LeadsPage() {
   }, []);
 
   // ---- Deal data + actions (shared hook; also used by the Pipeline) --------
-  const dealsApi = useDeals({ viewerId, isManager, focusIsDsc, config });
+  const dealsApi = useDeals({ user: viewer, focusIsDsc, config });
   const deals = dealsApi.deals;
+  const [toast, setToast] = useState("");
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(""), 3200);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   // ---- Lead controls -------------------------------------------------------
   const [search, setSearch] = useState("");
@@ -321,9 +340,18 @@ export default function LeadsPage() {
   const scopeUserId =
     effFocus === "team" ? null : focusIsDsc ? effFocus : viewerId;
   const roleScoped = useMemo(() => {
-    if (effFocus === "team") return allLeads;
-    return allLeads.filter((l) => l.assignedDscId === scopeUserId);
-  }, [allLeads, effFocus, scopeUserId]);
+    const base =
+      effFocus === "team"
+        ? allLeads
+        : allLeads.filter((l) => l.assignedDscId === scopeUserId);
+    // Decorate each lead with its DERIVED status + the five computed deal-count
+    // columns, so the table/filter/sidebar show what the deals actually imply.
+    return base.map((l) => ({
+      ...l,
+      derivedStatus: deriveLeadStatus(l, deals),
+      ...leadDealCounts(l, deals),
+    }));
+  }, [allLeads, effFocus, scopeUserId, deals]);
   const roleScopedDeals = useMemo(() => {
     if (effFocus === "team") return deals;
     return deals.filter((d) => d.ownerId === scopeUserId);
@@ -401,7 +429,7 @@ export default function LeadsPage() {
   );
 
   const filterOptions = {
-    leadStatus: LEAD_STATUSES,
+    leadStatus: LEAD_STATUS_OPTIONS,
     priority: PRIORITIES,
     industry: INDUSTRIES,
     city: cityOptions,
@@ -413,13 +441,13 @@ export default function LeadsPage() {
   };
 
   const dealFilterOptions = {
-    dealStatus: DEAL_STATUSES,
+    stage: DEAL_STAGE_OPTIONS,
     ownerId: [
       { value: "", label: "Unassigned" },
       ...dscs.map((d) => ({ value: d.id, label: d.name })),
     ],
     offeringKind: ["service", "product"],
-    approvalStatus: ["pending", "approved", "rejected"],
+    approval: DEAL_APPROVAL_OPTIONS,
   };
 
   const visibleColumns = useMemo(
@@ -433,7 +461,10 @@ export default function LeadsPage() {
     let rows = roleScoped.filter((lead) => {
       for (const key of Object.keys(EMPTY_FILTERS)) {
         const sel = filters[key];
-        if (sel.length > 0 && !sel.includes(lead[key])) return false;
+        if (sel.length === 0) continue;
+        // The status filter matches the DERIVED status (the 10-value model).
+        const value = key === "leadStatus" ? lead.derivedStatus : lead[key];
+        if (!sel.includes(value)) return false;
       }
       if (!inDateRange(lead.nextFollowUpDate, dateFrom, dateTo)) return false;
       if (q) {
@@ -470,10 +501,7 @@ export default function LeadsPage() {
   const visibleDeals = useMemo(() => {
     const q = dealSearch.trim().toLowerCase();
     let rows = roleScopedDeals.filter((d) => {
-      if (
-        dealFilters.dealStatus.length &&
-        !dealFilters.dealStatus.includes(d.dealStatus)
-      )
+      if (dealFilters.stage.length && !dealFilters.stage.includes(d.stage))
         return false;
       if (
         dealFilters.ownerId.length &&
@@ -486,8 +514,8 @@ export default function LeadsPage() {
       )
         return false;
       if (
-        dealFilters.approvalStatus.length &&
-        !dealFilters.approvalStatus.includes(d.approvalStatus)
+        dealFilters.approval.length &&
+        !dealFilters.approval.includes(d.approval)
       )
         return false;
       if (q && !`${d.company} ${d.offeringName}`.toLowerCase().includes(q))
@@ -581,6 +609,36 @@ export default function LeadsPage() {
     const keys = Object.keys(patch);
     const isReassignOnly = keys.length === 1 && keys[0] === "assignedDscId";
     if (isReassignOnly ? !canReassign : !canEditLead(lead)) return;
+    // Data-layer guard for lead status writes: reject derived statuses + a gated
+    // Lost. Never trust the UI alone (mirrors the server-side rule).
+    if ("leadStatus" in patch) {
+      const check = validateLeadStatusWrite(lead, deals, patch.leadStatus);
+      if (!check.ok) {
+        setToast(check.reason);
+        return;
+      }
+      recordAudit({
+        entityType: "lead",
+        entityId: leadId,
+        field: "status",
+        from: labelOf(lead?.leadStatus),
+        to: labelOf(patch.leadStatus),
+        actor: { id: viewer?.id, role: viewer?.role },
+      });
+    }
+    if (
+      "assignedDscId" in patch &&
+      patch.assignedDscId !== lead?.assignedDscId
+    ) {
+      recordAudit({
+        entityType: "lead",
+        entityId: leadId,
+        field: "owner",
+        from: dscName(lead?.assignedDscId),
+        to: dscName(patch.assignedDscId),
+        actor: { id: viewer?.id, role: viewer?.role },
+      });
+    }
     setAllLeads((rows) =>
       rows.map((l) => (l.leadId === leadId ? { ...l, ...patch } : l))
     );
@@ -624,7 +682,7 @@ export default function LeadsPage() {
   const canManageDeals = detailLead ? canEditLead(detailLead) : false;
 
   // Create one deal (one offering) under the lead from the modal.
-  function submitCreateDeal({ offeringId, quotedAmount, closedAmount, note }) {
+  function submitCreateDeal({ offeringId, quotedAmount, finalAmount, note }) {
     const lead = createDealLead;
     if (!lead) return;
     const owner = viewer?.role === "dsc" ? viewer.id : lead.assignedDscId || "";
@@ -633,9 +691,9 @@ export default function LeadsPage() {
       companyId: lead.companyId,
       offeringId,
       ownerId: owner,
-      dealStatus: "Open",
+      stage: DEAL_STAGE.OPEN,
       quotedAmount,
-      closedAmount: closedAmount ?? null,
+      finalAmount: finalAmount ?? null,
       createdDate: monthKeyOf() + "-15",
       notes: note || "",
     })
@@ -877,14 +935,22 @@ export default function LeadsPage() {
       <DealDetailSidebar
         deal={dealsApi.detailDeal}
         config={config}
-        canEditStatus={dealsApi.canEditDeal(dealsApi.detailDeal)}
+        selectableStages={dealsApi.selectableStages}
         canEditAmounts={dealsApi.canEditAmounts(dealsApi.detailDeal)}
-        canRequestWin={dealsApi.canRequestWin(dealsApi.detailDeal)}
-        onChangeStatus={dealsApi.moveDeal}
+        approvalEligibility={dealsApi.approvalEligibility}
+        canWithdraw={dealsApi.canWithdraw(dealsApi.detailDeal)}
+        isAdmin={isAdmin}
+        onChangeStage={(id, stage) => {
+          const res = dealsApi.moveDeal(id, stage);
+          if (res && !res.ok) setToast(res.reason);
+        }}
         onChangeField={dealsApi.editDeal}
-        onRequestWin={(deal) =>
-          dealsApi.openWinRequest(deal, "Project Started")
-        }
+        onRequestWin={dealsApi.openWinRequest}
+        onWithdraw={dealsApi.withdrawRequest}
+        onApprove={dealsApi.approveDealAction}
+        onReject={dealsApi.rejectDealAction}
+        onDeliver={dealsApi.deliverDealAction}
+        onReverse={dealsApi.reverseDealAction}
         onOpenLead={(leadId) => {
           const lead = allLeads.find((l) => l.leadId === leadId);
           if (lead) {
@@ -898,7 +964,6 @@ export default function LeadsPage() {
       <DealWinRequestModal
         open={!!dealsApi.winDeal}
         deal={dealsApi.winDeal}
-        toStatus={dealsApi.winToStatus}
         requestedBy={viewerId}
         today={monthKeyOf() + "-15"}
         onSubmit={dealsApi.submitWinRequest}
@@ -920,6 +985,12 @@ export default function LeadsPage() {
         onImported={handleImported}
         importCols={importCols}
       />
+
+      {toast ? (
+        <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-slate-900 px-4 py-2 text-sm text-white shadow-lg">
+          {toast}
+        </div>
+      ) : null}
     </div>
   );
 }

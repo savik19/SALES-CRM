@@ -273,6 +273,33 @@ export default function CompensationPage() {
           </Grid>
         </Section>
 
+        {/* -------- Commission release timing -------- */}
+        <Section
+          title="Commission release"
+          subtitle="When an approved deal's commission becomes PAYABLE. 'On delivery' (recommended) accrues it as Earned (held) at approval and releases it when the project is delivered — keeping the motivational signal immediate while controlling clawback risk if a project dies mid-flight."
+        >
+          <div className="inline-flex rounded-lg border border-slate-300 p-0.5">
+            {[
+              { key: "project_delivered", label: "On delivery (recommended)" },
+              { key: "project_started", label: "On approval" },
+            ].map((opt) => (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => set("commissionReleaseTrigger", opt.key)}
+                className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                  (draft.commissionReleaseTrigger || "project_delivered") ===
+                  opt.key
+                    ? "bg-brand text-white"
+                    : "text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </Section>
+
         {/* -------- Commission catalog (Services & Products) -------- */}
         <Section
           title="Services & Products — commission catalog"

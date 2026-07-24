@@ -73,7 +73,7 @@ export function buildLeadFromRow(importCols, indexByKey, row) {
     const i = indexByKey[col.key];
     lead[col.key] = coerce(col.key, i === undefined ? "" : row[i]);
   }
-  lead.leadStatus = "New";
+  lead.leadStatus = "new";
   lead.assignedDscId = "";
   lead.attemptCount = 0;
   lead.servicesPitched = [];

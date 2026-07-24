@@ -264,6 +264,65 @@ export const COLUMNS = [
   // Lead → Deal model money lives on the DEAL (one deal = one offering), so those
   // columns were removed from the lead. The three service arrays above stay as the
   // DSC's knowledge tags; Services Interested drives what deals can be created.
+
+  // Computed deal-count columns (derived from the lead's deals; §2.3). Marked
+  // `computed: true` so the Column Mapping screen shows them as non-mappable —
+  // they have no Google Sheet source. Sortable + non-editable.
+  {
+    key: "dealsTotal",
+    label: "Deals",
+    group: "Deals",
+    defaultVisible: true,
+    sortType: "number",
+    inImportSheet: false,
+    aliases: [],
+    computed: true,
+    width: 90,
+  },
+  {
+    key: "dealsLive",
+    label: "Live",
+    group: "Deals",
+    defaultVisible: true,
+    sortType: "number",
+    inImportSheet: false,
+    aliases: [],
+    computed: true,
+    width: 80,
+  },
+  {
+    key: "dealsStarted",
+    label: "Started",
+    group: "Deals",
+    defaultVisible: false,
+    sortType: "number",
+    inImportSheet: false,
+    aliases: [],
+    computed: true,
+    width: 90,
+  },
+  {
+    key: "dealsDelivered",
+    label: "Delivered",
+    group: "Deals",
+    defaultVisible: false,
+    sortType: "number",
+    inImportSheet: false,
+    aliases: [],
+    computed: true,
+    width: 100,
+  },
+  {
+    key: "wonValue",
+    label: "Won Value",
+    group: "Deals",
+    defaultVisible: true,
+    sortType: "number",
+    inImportSheet: false,
+    aliases: [],
+    computed: true,
+    width: 130,
+  },
 ];
 
 // ---- Pure selectors over a columns array (works for the live/edited config) -

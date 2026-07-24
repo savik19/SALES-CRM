@@ -13,7 +13,6 @@ const inputClass =
 export default function DealWinRequestModal({
   open,
   deal, // the deal being advanced (with offeringName + company enriched)
-  toStatus = "Project Started", // the gated stage requested
   requestedBy,
   today,
   onSubmit,
@@ -22,10 +21,10 @@ export default function DealWinRequestModal({
   const [closed, setClosed] = useState("");
   const [note, setNote] = useState("");
 
-  // Seed the closed amount from the deal's quoted value each time it opens.
+  // Seed the final amount from the deal's final (or quoted) value on open.
   useEffect(() => {
     if (!open || !deal) return;
-    setClosed(deal.quotedAmount ?? "");
+    setClosed(deal.finalAmount ?? deal.quotedAmount ?? "");
     setNote("");
   }, [open, deal]);
 
@@ -49,7 +48,7 @@ export default function DealWinRequestModal({
       requestedBy,
       requestedDate: today,
       quotedAmount: quoted,
-      closedAmount: closedNum,
+      finalAmount: closedNum,
       note: note.trim(),
     });
   }
@@ -73,9 +72,9 @@ export default function DealWinRequestModal({
           </h2>
           <p className="mt-0.5 text-xs text-slate-500">
             {deal.company} · {deal.offeringName}. Fill the finalized amount and
-            send to the Admin; the deal moves to{" "}
-            <span className="font-medium">{toStatus}</span> and is credited only
-            once approved.
+            send to the Admin; on approval the deal moves to{" "}
+            <span className="font-medium">Project Started</span> and its
+            commission accrues.
           </p>
         </div>
 
@@ -91,7 +90,7 @@ export default function DealWinRequestModal({
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-slate-600">
-                Closed amount (₹) *
+                Final amount (₹) *
               </label>
               <input
                 type="number"
@@ -99,7 +98,7 @@ export default function DealWinRequestModal({
                 className={inputClass}
                 value={closed}
                 onChange={(e) => setClosed(e.target.value)}
-                aria-label="Closed amount"
+                aria-label="Final amount"
               />
             </div>
           </div>
