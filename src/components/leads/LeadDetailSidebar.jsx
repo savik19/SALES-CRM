@@ -18,11 +18,10 @@ export default function LeadDetailSidebar({
   onClose,
   // ---- Lead → Deal model -------------------------------------------------
   deals = [], // this lead's deals, each enriched with { offeringName, offeringKind }
-  catalogOfferings = [], // [{ id, name, kind }] active offerings (for interest)
-  interestIds = [], // lead.interestedOfferingIds
   canManageDeals = false, // owner/manager (not a read-only DSC view)
-  onToggleInterest, // (offeringId) => void — mark/unmark interest
+  canCreateDeal = false, // lead has ≥1 Service Interested that maps to an offering
   onCreateDeal, // (lead) => void — open the create-deal modal
+  onOpenDeal, // (deal) => void — open the deal detail
 }) {
   useEffect(() => {
     if (!lead) return;
@@ -85,91 +84,59 @@ export default function LeadDetailSidebar({
                 variant="sidebar"
               />
 
-              {catalogOfferings.length ? (
-                <>
-                  {/* ---- Interested in (non-binding) ---- */}
-                  <section className="mt-5">
-                    <h4 className="mb-2 border-b border-slate-100 pb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                      Interested in
-                    </h4>
-                    <div className="flex flex-wrap gap-1.5">
-                      {catalogOfferings.map((o) => {
-                        const on = interestIds.includes(o.id);
-                        return (
-                          <button
-                            key={o.id}
-                            type="button"
-                            disabled={!canManageDeals}
-                            onClick={() => onToggleInterest?.(o.id)}
-                            className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
-                              on
-                                ? "bg-brand text-white"
-                                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                            } ${!canManageDeals ? "cursor-not-allowed opacity-70" : ""}`}
-                          >
-                            {o.name}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <p className="mt-1.5 text-[11px] text-slate-400">
-                      Non-binding. Once the lead confirms, create a deal for
-                      each.
-                    </p>
-                  </section>
-
-                  {/* ---- Deals (one offering each) ---- */}
-                  <section className="mt-5">
-                    <div className="mb-2 flex items-center justify-between gap-2 border-b border-slate-100 pb-1">
-                      <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                        Deals ({deals.length})
-                      </h4>
-                      {canManageDeals ? (
+              {/* ---- Deals (one offering each) ---- */}
+              <section className="mt-5">
+                <div className="mb-2 flex items-center justify-between gap-2 border-b border-slate-100 pb-1">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                    Deals ({deals.length})
+                  </h4>
+                  {canManageDeals ? (
+                    <button
+                      type="button"
+                      onClick={() => onCreateDeal?.(lead)}
+                      disabled={!canCreateDeal}
+                      className="shrink-0 rounded-md border border-brand px-2 py-0.5 text-xs font-medium text-brand hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-40"
+                      title={
+                        canCreateDeal
+                          ? "Create a deal"
+                          : "Mark a Service Interested above first"
+                      }
+                    >
+                      + Create deal
+                    </button>
+                  ) : null}
+                </div>
+                {deals.length ? (
+                  <ul className="space-y-1.5">
+                    {deals.map((d) => (
+                      <li key={d.dealId}>
                         <button
                           type="button"
-                          onClick={() => onCreateDeal?.(lead)}
-                          disabled={interestIds.length === 0}
-                          className="shrink-0 rounded-md border border-brand px-2 py-0.5 text-xs font-medium text-brand hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-40"
-                          title={
-                            interestIds.length === 0
-                              ? "Mark interest first, then create a deal"
-                              : "Create a deal"
-                          }
+                          onClick={() => onOpenDeal?.(d)}
+                          className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 px-3 py-2 text-left hover:border-brand hover:bg-slate-50"
                         >
-                          + Create deal
+                          <span className="flex min-w-0 items-center gap-2">
+                            <span className="truncate text-sm font-medium text-slate-800">
+                              {d.offeringName}
+                            </span>
+                            <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-slate-500">
+                              {d.dealStatus}
+                            </span>
+                          </span>
+                          <span className="shrink-0 tabular-nums text-xs text-slate-500">
+                            {formatINR(d.closedAmount ?? d.quotedAmount)}
+                          </span>
                         </button>
-                      ) : null}
-                    </div>
-                    {deals.length ? (
-                      <ul className="space-y-1.5">
-                        {deals.map((d) => (
-                          <li
-                            key={d.dealId}
-                            className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 px-3 py-2"
-                          >
-                            <span className="flex min-w-0 items-center gap-2">
-                              <span className="truncate text-sm font-medium text-slate-800">
-                                {d.offeringName}
-                              </span>
-                              <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-slate-500">
-                                {d.dealStatus}
-                              </span>
-                            </span>
-                            <span className="shrink-0 tabular-nums text-xs text-slate-500">
-                              {formatINR(d.closedAmount ?? d.quotedAmount)}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-xs text-slate-400">
-                        No deals yet. Mark what the lead is interested in above,
-                        then “+ Create deal” once they confirm.
-                      </p>
-                    )}
-                  </section>
-                </>
-              ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-slate-400">
+                    No deals yet. Set the lead’s <b>Services Interested</b>{" "}
+                    above, then “+ Create deal” once they confirm.
+                  </p>
+                )}
+              </section>
             </div>
           </>
         ) : null}

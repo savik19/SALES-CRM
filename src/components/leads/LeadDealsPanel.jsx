@@ -16,10 +16,8 @@ const APPROVAL_BADGE = {
 export default function LeadDealsPanel({
   lead,
   deals = [], // this lead's deals, enriched with offeringName
-  catalogOfferings = [],
-  interestIds = [],
   canManageDeals = false,
-  onToggleInterest, // (offeringId) => void
+  canCreateDeal = false, // lead has ≥1 Service Interested that maps to an offering
   onCreateDeal, // (lead) => void
   onOpenDeal, // (deal) => void
   onOpenFull, // (lead) => void — open the full lead detail sidebar
@@ -44,33 +42,6 @@ export default function LeadDealsPanel({
         </button>
       </div>
 
-      {/* Interested in */}
-      <section>
-        <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-          Interested in
-        </h4>
-        <div className="flex flex-wrap gap-1.5">
-          {catalogOfferings.map((o) => {
-            const on = interestIds.includes(o.id);
-            return (
-              <button
-                key={o.id}
-                type="button"
-                disabled={!canManageDeals}
-                onClick={() => onToggleInterest?.(o.id)}
-                className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
-                  on
-                    ? "bg-brand text-white"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                } ${!canManageDeals ? "cursor-not-allowed opacity-70" : ""}`}
-              >
-                {o.name}
-              </button>
-            );
-          })}
-        </div>
-      </section>
-
       {/* Deals */}
       <section>
         <div className="mb-2 flex items-center justify-between gap-2">
@@ -81,12 +52,12 @@ export default function LeadDealsPanel({
             <button
               type="button"
               onClick={() => onCreateDeal?.(lead)}
-              disabled={interestIds.length === 0}
+              disabled={!canCreateDeal}
               className="shrink-0 rounded-md border border-brand px-2 py-0.5 text-xs font-medium text-brand hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-40"
               title={
-                interestIds.length === 0
-                  ? "Mark interest first, then create a deal"
-                  : "Create a deal"
+                canCreateDeal
+                  ? "Create a deal"
+                  : "Mark a Service Interested on the lead first"
               }
             >
               + Create deal
@@ -157,8 +128,8 @@ export default function LeadDealsPanel({
           </div>
         ) : (
           <p className="text-xs text-slate-400">
-            No deals yet. Mark what the lead is interested in above, then “+
-            Create deal” once they confirm.
+            No deals yet. Set the lead’s <b>Services Interested</b> (Full
+            details), then “+ Create deal” once they confirm.
           </p>
         )}
       </section>

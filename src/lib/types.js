@@ -31,12 +31,11 @@
  * @property {string} priority          One of PRIORITIES.
  * @property {string} assignedDscId     Owning DSC id (see TeamMember.id).
  * @property {number} attemptCount      Contact attempts.
- * @property {string[]} servicesPitched     Subset of SERVICES.
- * @property {string[]} servicesInterested  Subset of SERVICES.
- * @property {string[]} servicesOnboarded   Subset of SERVICES.
- * @property {number|null} quotedAmount  Rupees, or null.
- * @property {number|null} closedAmount  Rupees, or null.
- * @property {string} lostReason        One of LOST_REASONS; only when Lost.
+ * @property {string[]} servicesPitched     Subset of SERVICES (knowledge tag).
+ * @property {string[]} servicesInterested  Subset of SERVICES (knowledge tag);
+ *                                          drives which offerings a Deal can be
+ *                                          created for.
+ * @property {string[]} servicesOnboarded   Subset of SERVICES (knowledge tag).
  * @property {string} lastContactDate   ISO "YYYY-MM-DD" or "".
  * @property {string} nextFollowUpDate  ISO "YYYY-MM-DD" or "".
  * @property {string} notes             Free-form long text.
@@ -55,8 +54,11 @@
  *                                   compensation rule prices this deal.
  * @property {string} ownerId        Owning DSC (FK → TeamMember.id).
  * @property {string} dealStatus     One of DEAL_STATUSES (the pipeline stage).
- * @property {number|null} quotedAmount  Rupees, or null.
- * @property {number|null} closedAmount  Rupees agreed, or null.
+ * @property {number|null} quotedAmount  Rupees pitched, or null.
+ * @property {number|null} closedAmount  Rupees finalized/agreed, or null.
+ * @property {string} lostReason     One of LOST_REASONS; only when dealStatus
+ *                                   is "Lost". Discount % is derived from
+ *                                   quoted/closed, never stored.
  * @property {string} createdDate    ISO "YYYY-MM-DD".
  * @property {string} approvalStatus "" | "pending" | "approved" | "rejected".
  * @property {Object|null} approvalRequest  Snapshot sent for approval.

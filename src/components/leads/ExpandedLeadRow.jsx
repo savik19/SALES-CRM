@@ -5,19 +5,16 @@ import {
   PRIORITIES,
   LEAD_SOURCES,
   INDUSTRIES,
-  LOST_REASONS,
   SERVICES,
 } from "@/data/mockLeads";
 import { useActiveDscs, useUsers } from "@/lib/usersConfig";
-import { discountPctLabel } from "@/lib/format";
 
-// Field type + options, derived from the column key.
+// Field type + options, derived from the column key. (Money fields — quoted,
+// closed, discount, lost reason — moved to the Deal, so they're no longer here.)
 function fieldConfig(key) {
   switch (key) {
     case "leadId":
       return { type: "readonly" };
-    case "discountPct":
-      return { type: "computed" };
     case "industry":
       return { type: "select", options: INDUSTRIES };
     case "leadSource":
@@ -26,8 +23,6 @@ function fieldConfig(key) {
       return { type: "select", options: LEAD_STATUSES };
     case "priority":
       return { type: "select", options: PRIORITIES };
-    case "lostReason":
-      return { type: "select", options: ["", ...LOST_REASONS] };
     case "assignedDscId":
       return { type: "dsc" };
     case "servicesPitched":
@@ -38,8 +33,6 @@ function fieldConfig(key) {
     case "nextFollowUpDate":
       return { type: "date" };
     case "attemptCount":
-    case "quotedAmount":
-    case "closedAmount":
       return { type: "number" };
     case "notes":
       return { type: "textarea" };
@@ -68,16 +61,14 @@ function Field({ column, lead, canEdit, canAssign, onChange, dscs }) {
 
   // Assigned DSC is editable only by the BDM.
   const editable =
-    cfg.type === "readonly" || cfg.type === "computed"
+    cfg.type === "readonly"
       ? false
       : key === "assignedDscId"
         ? canAssign
         : canEdit;
 
   let control;
-  if (cfg.type === "computed") {
-    control = <span className="text-slate-700">{discountPctLabel(lead)}</span>;
-  } else if (cfg.type === "readonly") {
+  if (cfg.type === "readonly") {
     control = <span className="font-mono text-slate-600">{value}</span>;
   } else if (cfg.type === "select") {
     control = (

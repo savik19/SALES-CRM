@@ -19,16 +19,19 @@ sync with this doc.
 The domain has **two** records:
 
 - A **Lead** is a **prospect** — the company/contact you're working, its funnel
-  status, and a non-binding list of the offerings it's **interested in**
-  (`interestedOfferingIds`). No money lives on the lead.
+  status, and the DSC's knowledge tags: **Services Pitched / Services Interested /
+  Services Onboarded**. **No money lives on the lead** (quoted/closed/discount/
+  lost-reason all live on the Deal). `servicesInterested` is what a deal can be
+  created for.
 - A **Deal** is the **unit of sale**: **one deal = one offering** (a single
   service or product). Money, stage, win-approval, commission and target all
   live on the deal. Once a prospect confirms, the DSC creates one deal **per
-  offering** (`POST /api/deals`). A lead can hold **many** deals, now and in
-  future (a repeat customer just gets new deals under the same lead).
+  offering** (`POST /api/deals`) — the create dropdown is the lead's
+  `servicesInterested`. A lead can hold **many** deals, now and in future (a
+  repeat customer just gets new deals under the same lead).
 
 So the Lead Table (`/leads`) has a **Leads | Deals** toggle: the Lead view is a
-**prospect inbox** (each row expands to the lead's deals + interest); the Deal
+**prospect inbox** (each row expands to the lead's deals); the Deal
 view is a **table of every deal** with its own status/money filters. The Pipeline
 (`/pipeline`) is the same deals as a **Kanban board**. Approvals groups pending
 deals **under their lead**. Analytics keep the lead **funnel** (prospecting
@@ -48,7 +51,7 @@ credited toward target + commission; a deal merely at "Won" is not.
 | ------------------------------------------- | --------------------------------- | ------------------------- |
 | `leadsApi.getLeads()`                       | `GET /api/leads`                  | Lead Table (prospects)    |
 | `leadsApi.getLeadById(leadId)`              | `GET /api/leads/:id`              | Lead detail               |
-| `leadsApi.updateLead(leadId, changes)`      | `PATCH /api/leads/:id`            | Edit / interest / status  |
+| `leadsApi.updateLead(leadId, changes)`      | `PATCH /api/leads/:id`            | Edit fields / status      |
 | `dealsApi.getDeals()`                       | `GET /api/deals`                  | Pipeline, Approvals       |
 | `dealsApi.getDealsByLead(leadId)`           | `GET /api/leads/:id/deals`        | Lead detail deals list    |
 | `dealsApi.createDeal(deal)`                 | `POST /api/deals`                 | Create-deal (from a lead) |
@@ -65,7 +68,7 @@ or an `Authorization` header.
 
 ## Object shapes
 
-### Lead (26-field schema)
+### Lead (prospect schema)
 
 ```jsonc
 {
@@ -87,31 +90,27 @@ or an `Authorization` header.
   "assignedDscId": "u-anaya", // string → TeamMember.id
   "attemptCount": 5, // number
   "servicesPitched": ["Website Development", "AI Tools"], // multi-select, subset of SERVICES
-  "servicesInterested": ["Website Development"], // multi-select
+  "servicesInterested": ["Website Development"], // multi-select — drives deal creation
   "servicesOnboarded": [], // multi-select
-  "quotedAmount": 350000, // number (Rupees) or null
-  "closedAmount": null, // number (Rupees) or null
-  "lostReason": "", // enum — LOST_REASONS; only when leadStatus = "Lost"
   "lastContactDate": "2026-07-09", // ISO date or ""
   "nextFollowUpDate": "2026-07-14", // ISO date or ""
   "assignedDate": "2026-07-02", // ISO date the lead was assigned to its DSC
   "closedDate": "2026-07-11", // ISO date a won lead was closed; "" otherwise
   "notes": "Wants a revised quote…", // long text
-
-  // ---- Lead → Deal model ----
   "companyId": "co-sri-vari-textiles", // groups a company's leads/deals
-  "interestedOfferingIds": ["svc-custom-software", "svc-website"], // non-binding
-  // interest — offering ids the prospect is interested in; the DSC creates one
-  // Deal per confirmed offering. See the Deal shape + endpoints below.
+  // NOTE: no quotedAmount/closedAmount/discount/lostReason — money lives on the
+  // Deal (below). The three service arrays are knowledge tags; servicesInterested
+  // is the list a deal can be created for.
 }
 ```
 
-**Prospect record.** Under the Lead → Deal model the Lead is the **prospect**:
-its `interestedOfferingIds` is a non-binding shortlist the DSC toggles in the lead
-detail. When the prospect confirms, the DSC creates one **Deal** per offering
-(`POST /api/deals`). All money/stage/approval/commission live on the **Deal**
-(below), not the lead. `quotedAmount` / `closedAmount` remain on the lead only as
-legacy rollups; new work reads them off deals.
+**Prospect record.** Under the Lead → Deal model the Lead is the **prospect** and
+carries **no money**. The DSC tags what was pitched / what the lead is interested
+in / what's onboarded (the three service arrays). When the prospect confirms, the
+DSC creates one **Deal** per offering (`POST /api/deals`) — the create dropdown is
+the lead's `servicesInterested`. All money/stage/approval/commission live on the
+**Deal**
+(below), not the lead.
 
 > **Discount %** is **computed, never stored**:
 > `(quotedAmount − closedAmount) / quotedAmount × 100`. The frontend derives it
@@ -131,8 +130,9 @@ A **Deal** is one confirmed offering under a Lead. Canonical typedef:
   "offeringId": "svc-custom-software", // FK → catalog offering (prices the deal)
   "ownerId": "u-anaya", // FK → TeamMember.id (the owning DSC)
   "dealStatus": "Open", // enum — DEAL_STATUSES (single-select, pipeline order)
-  "quotedAmount": 210000, // number (Rupees) or null
-  "closedAmount": null, // number (Rupees) agreed, or null until won
+  "quotedAmount": 210000, // number (Rupees) PITCHED, or null
+  "closedAmount": null, // number (Rupees) FINALIZED/agreed; null until set
+  "lostReason": "", // enum — LOST_REASONS; only when dealStatus = "Lost"
   "createdDate": "2026-07-08", // ISO date the deal was created
   "approvalStatus": "", // "" | "pending" | "approved" | "rejected"
   "approvalRequest": null, // snapshot sent for approval (see win flow)
@@ -348,9 +348,12 @@ The Pipeline, Approvals and the lead-detail deals list read/write deals through
 - `GET /api/leads/:id/deals` → the `Deal[]` for one lead.
 - `POST /api/deals` (deal owner) — create a deal for a lead. Body: a partial
   `Deal` `{ leadId, companyId, offeringId, ownerId, dealStatus:"Open",
-quotedAmount, createdDate, notes? }`; the backend assigns `dealId` and defaults
-  the rest. Enforce that the parent lead is the caller's (or a manager's) prospect.
-  **201** → the created `Deal`.
+quotedAmount, closedAmount?, createdDate, notes? }`; the backend assigns `dealId`
+  and defaults the rest. The `offeringId` must be one of the lead's
+  `servicesInterested` (that's the only list the create dropdown offers). Pitched
+  (`quotedAmount`) is required to save; the finalized amount is optional here and
+  becomes required to send the deal for approval. Enforce that the parent lead is
+  the caller's (or a manager's) prospect. **201** → the created `Deal`.
 - `PATCH /api/deals/:id` — partial `Deal` (stage, value, owner…), e.g.
   `{ "dealStatus": "Negotiation" }`. **200** → the updated `Deal`. Enforce the
   edit-permission model (owner or manager on own/unassigned).

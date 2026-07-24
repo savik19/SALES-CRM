@@ -83,6 +83,7 @@ export async function createDeal(deal) {
     dealStatus: "Open",
     quotedAmount: null,
     closedAmount: null,
+    lostReason: "",
     approvalStatus: "",
     approvalRequest: null,
     approvalReason: "",

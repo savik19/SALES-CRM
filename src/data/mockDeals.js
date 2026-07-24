@@ -22,6 +22,7 @@ import {
   MOCK_LEADS,
   OFFERING_ID_BY_NAME,
   CREDITED_DEAL_STATUSES,
+  LOST_REASONS,
 } from "./mockLeads";
 
 // Map a lead's current (flat) status to the equivalent DEAL status, so the seed
@@ -72,16 +73,17 @@ function dealsForLead(lead) {
   // (finalized amount set) but it hasn't been sent for / granted approval yet.
   const credited = CREDITED_DEAL_STATUSES.has(dealStatus);
   const agreed = dealStatus === "Won";
-  const totalClosed = Number(lead.closedAmount) || 0;
-  const totalQuoted = Number(lead.quotedAmount) || totalClosed || 0;
-  const n = offeringIds.length;
+  const isLost = dealStatus === "Lost";
   const num = parseInt(String(lead.leadId).replace(/\D/g, ""), 10) || 0;
 
   return offeringIds.map((offeringId, i) => {
-    const quotedAmount = n ? Math.round(totalQuoted / n) : 0;
-    // The finalized amount is known once the client agrees (Won) or later.
+    // The LEAD no longer carries money, so seed a deterministic (per lead +
+    // offering) amount so the demo has realistic-looking figures.
+    const quotedAmount = 80000 + ((num + i * 13) % 15) * 20000; // 80k–360k
+    // The finalized amount is known once the client agrees (Won) or later —
+    // seeded ~10% below the quote.
     const closedAmount =
-      (credited || agreed) && n ? Math.round(totalClosed / n) : null;
+      credited || agreed ? Math.round(quotedAmount * 0.9) : null;
     return {
       dealId: `DEAL-${num}-${i + 1}`,
       leadId: lead.leadId,
@@ -91,6 +93,7 @@ function dealsForLead(lead) {
       dealStatus,
       quotedAmount,
       closedAmount,
+      lostReason: isLost ? LOST_REASONS[num % LOST_REASONS.length] : "",
       createdDate: lead.assignedDate || "",
       approvalStatus: credited ? "approved" : "",
       approvalRequest: null,

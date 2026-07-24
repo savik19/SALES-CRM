@@ -1,30 +1,33 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 // Create ONE deal (one offering) under a lead — the confirmation step of the
-// Lead → Deal flow. The DSC picks the offering the lead confirmed and an
-// estimated value; the deal starts at "Open" and moves through the deal pipeline.
-// Closed value + commission are settled later when the deal is won.
+// Lead → Deal flow. The offering dropdown is the lead's **Services Interested**
+// (the DSC's knowledge tags), so a deal can only be for something the lead
+// actually wants. The DSC fills the pitched (quoted) amount to save; the
+// finalized (closed) amount is optional here and becomes compulsory only when the
+// deal is sent for approval. Discount is derived.
 const inputClass =
   "w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-800 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand";
 
 export default function CreateDealModal({
   open,
   lead,
-  offerings, // [{ id, name, kind }] active catalog offerings
-  interestIds = [], // the lead's interested offering ids (defaults the picker)
+  offerings, // [{ id, name, kind }] — the lead's interested offerings only
   onSubmit,
   onClose,
 }) {
   const [offeringId, setOfferingId] = useState("");
   const [quoted, setQuoted] = useState("");
+  const [closed, setClosed] = useState("");
   const [note, setNote] = useState("");
 
   useEffect(() => {
     if (!open) return;
-    setOfferingId(interestIds[0] || offerings?.[0]?.id || "");
+    setOfferingId(offerings?.[0]?.id || "");
     setQuoted("");
+    setClosed("");
     setNote("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -36,21 +39,23 @@ export default function CreateDealModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
+  const quotedNum = Number(quoted) || 0;
+  const closedNum = closed === "" ? null : Number(closed) || 0;
+  const discountPct = useMemo(() => {
+    if (!quotedNum || closedNum == null) return null;
+    return Math.round(((quotedNum - closedNum) / quotedNum) * 1000) / 10;
+  }, [quotedNum, closedNum]);
+
   if (!open || !lead) return null;
 
-  const valid = offeringId && Number(quoted) > 0;
-
-  // Show interested offerings first, then the rest.
-  const ordered = [
-    ...offerings.filter((o) => interestIds.includes(o.id)),
-    ...offerings.filter((o) => !interestIds.includes(o.id)),
-  ];
+  const valid = offeringId && quotedNum > 0;
 
   function submit() {
     if (!valid) return;
     onSubmit({
       offeringId,
-      quotedAmount: Number(quoted) || null,
+      quotedAmount: quotedNum || null,
+      closedAmount: closedNum,
       note: note.trim(),
     });
   }
@@ -73,8 +78,8 @@ export default function CreateDealModal({
             Create a deal
           </h2>
           <p className="mt-0.5 text-xs text-slate-500">
-            {lead.company} · one deal = one offering. It opens in the deal
-            pipeline.
+            {lead.company} · one deal = one offering. Pick from what the lead is
+            interested in; it opens in the deal pipeline.
           </p>
         </div>
 
@@ -83,37 +88,67 @@ export default function CreateDealModal({
             <label className="mb-1 block text-xs font-medium text-slate-600">
               Offering *
             </label>
-            <select
-              className={inputClass}
-              value={offeringId}
-              onChange={(e) => setOfferingId(e.target.value)}
-              aria-label="Offering"
-            >
-              <option value="">Select…</option>
-              {ordered.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name} ({o.kind})
-                  {interestIds.includes(o.id) ? " · interested" : ""}
-                </option>
-              ))}
-            </select>
+            {offerings.length ? (
+              <select
+                className={inputClass}
+                value={offeringId}
+                onChange={(e) => setOfferingId(e.target.value)}
+                aria-label="Offering"
+              >
+                {offerings.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name} ({o.kind})
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <p className="rounded-md bg-amber-50 px-2.5 py-2 text-xs text-amber-700">
+                Mark a service in <b>Services Interested</b> on the lead first —
+                a deal can only be for something the lead wants.
+              </p>
+            )}
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">
-              Estimated value (₹) *
-            </label>
-            <input
-              type="number"
-              min={0}
-              className={inputClass}
-              value={quoted}
-              onChange={(e) => setQuoted(e.target.value)}
-              aria-label="Estimated value"
-            />
-            <p className="mt-0.5 text-[11px] text-slate-400">
-              The closed value + commission are settled when the deal is won.
-            </p>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">
+                Pitched (₹) *
+              </label>
+              <input
+                type="number"
+                min={0}
+                className={inputClass}
+                value={quoted}
+                onChange={(e) => setQuoted(e.target.value)}
+                aria-label="Pitched amount"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">
+                Finalized (₹)
+              </label>
+              <input
+                type="number"
+                min={0}
+                className={inputClass}
+                value={closed}
+                onChange={(e) => setClosed(e.target.value)}
+                aria-label="Finalized amount"
+              />
+            </div>
           </div>
+          <p className="text-[11px] text-slate-400">
+            Save with just the pitched amount for now. The finalized amount
+            becomes required when you send the deal for approval — discount is{" "}
+            {discountPct == null ? (
+              "then auto-calculated."
+            ) : (
+              <span className="font-medium text-slate-600">
+                {discountPct}% now.
+              </span>
+            )}
+          </p>
+
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-600">
               Note (optional)
