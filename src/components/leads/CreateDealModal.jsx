@@ -55,7 +55,7 @@ export default function CreateDealModal({
     onSubmit({
       offeringId,
       quotedAmount: quotedNum || null,
-      closedAmount: closedNum,
+      finalAmount: closedNum,
       note: note.trim(),
     });
   }

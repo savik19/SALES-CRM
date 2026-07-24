@@ -2,19 +2,20 @@
 
 import MultiSelectDropdown from "@/components/leads/MultiSelectDropdown";
 import { dscName } from "@/data/mockLeads";
+import { labelOf } from "@/lib/statuses";
 
-// Filter + search bar for the Deals table view. Deal-native fields (status,
+// Filter + search bar for the Deals table view. Deal-native fields (stage,
 // owner, offering type, approval) — the page owns the state; this is presentation.
 const FILTER_DEFS = [
-  { key: "dealStatus", label: "Status" },
+  { key: "stage", label: "Stage" },
   { key: "ownerId", label: "Owner" },
   { key: "offeringKind", label: "Type" },
-  { key: "approvalStatus", label: "Approval" },
+  { key: "approval", label: "Approval" },
 ];
 
 function chipLabel(key, value) {
   if (key === "ownerId") return dscName(value);
-  if (key === "approvalStatus") return value || "None";
+  if (key === "stage" || key === "approval") return labelOf(value);
   return value;
 }
 

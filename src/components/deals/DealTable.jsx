@@ -1,7 +1,7 @@
 "use client";
 
 import { dscName } from "@/data/mockLeads";
-import { statusBadgeClass } from "@/components/leads/statusStyles";
+import { StageBadge, ApprovalBadge } from "@/components/leads/LeadStatusBadge";
 import { formatINR, formatDate, discountPctLabel } from "@/lib/format";
 
 // The tabular "Deals" view (Lead → Deal model) — the flat counterpart to the
@@ -14,9 +14,9 @@ const COLUMNS = [
   { key: "offeringName", label: "Offering", sort: "text", align: "left" },
   { key: "offeringKind", label: "Type", sort: "text", align: "left" },
   { key: "ownerId", label: "Owner", sort: "owner", align: "left" },
-  { key: "dealStatus", label: "Status", sort: "text", align: "left" },
+  { key: "stage", label: "Stage", sort: "text", align: "left" },
   { key: "quotedAmount", label: "Pitched", sort: "number", align: "right" },
-  { key: "closedAmount", label: "Finalized", sort: "number", align: "right" },
+  { key: "finalAmount", label: "Final", sort: "number", align: "right" },
   { key: "discount", label: "Discount", sort: "discount", align: "right" },
   { key: "approval", label: "Approval", sort: "text", align: "left" },
   { key: "paymentStatus", label: "Payment", sort: "text", align: "left" },
@@ -29,12 +29,6 @@ function SortArrow({ direction }) {
   if (!direction) return <span className="text-slate-300">↕</span>;
   return <span className="text-brand">{direction === "asc" ? "↑" : "↓"}</span>;
 }
-
-const APPROVAL_LABEL = {
-  pending: { text: "Pending", cls: "bg-amber-100 text-amber-700" },
-  approved: { text: "Approved", cls: "bg-green-100 text-green-700" },
-  rejected: { text: "Rejected", cls: "bg-red-100 text-red-700" },
-};
 
 function Cell({ column, deal }) {
   switch (column.key) {
@@ -54,24 +48,18 @@ function Cell({ column, deal }) {
       ) : (
         <span className="italic text-slate-400">Unassigned</span>
       );
-    case "dealStatus":
-      return (
-        <span
-          className={`inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${statusBadgeClass(deal.dealStatus)}`}
-        >
-          {deal.dealStatus}
-        </span>
-      );
+    case "stage":
+      return <StageBadge stage={deal.stage} />;
     case "quotedAmount":
       return (
         <span className="tabular-nums text-slate-700">
           {deal.quotedAmount != null ? formatINR(deal.quotedAmount) : "—"}
         </span>
       );
-    case "closedAmount":
+    case "finalAmount":
       return (
         <span className="tabular-nums text-slate-700">
-          {deal.closedAmount != null ? formatINR(deal.closedAmount) : "—"}
+          {deal.finalAmount != null ? formatINR(deal.finalAmount) : "—"}
         </span>
       );
     case "discount":
@@ -80,18 +68,8 @@ function Cell({ column, deal }) {
           {discountPctLabel(deal)}
         </span>
       );
-    case "approval": {
-      const a = APPROVAL_LABEL[deal.approvalStatus];
-      return a ? (
-        <span
-          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${a.cls}`}
-        >
-          {a.text}
-        </span>
-      ) : (
-        <span className="text-xs text-slate-400">—</span>
-      );
-    }
+    case "approval":
+      return <ApprovalBadge approval={deal.approval} />;
     case "paymentStatus":
       return (
         <span className="text-xs text-slate-600">

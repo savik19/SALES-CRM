@@ -3,7 +3,9 @@
 import { useEffect } from "react";
 import ExpandedLeadRow from "./ExpandedLeadRow";
 import { StatusBadge, PriorityBadge } from "./LeadStatusBadge";
+import ActivityLog from "./ActivityLog";
 import { formatINR } from "@/lib/format";
+import { labelOf } from "@/lib/statuses";
 
 // Slide-over lead detail, opened by clicking the Company name or Lead Id in a
 // row (the row's expand arrow opens the inline dropdown instead — two ways to
@@ -60,7 +62,7 @@ export default function LeadDetailSidebar({
                   {lead.leadId}
                 </p>
                 <div className="mt-2 flex items-center gap-2">
-                  <StatusBadge status={lead.leadStatus} />
+                  <StatusBadge status={lead.derivedStatus || lead.leadStatus} />
                   <PriorityBadge priority={lead.priority} />
                 </div>
               </div>
@@ -120,11 +122,11 @@ export default function LeadDetailSidebar({
                               {d.offeringName}
                             </span>
                             <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-slate-500">
-                              {d.dealStatus}
+                              {labelOf(d.stage)}
                             </span>
                           </span>
                           <span className="shrink-0 tabular-nums text-xs text-slate-500">
-                            {formatINR(d.closedAmount ?? d.quotedAmount)}
+                            {formatINR(d.finalAmount ?? d.quotedAmount)}
                           </span>
                         </button>
                       </li>
@@ -137,6 +139,11 @@ export default function LeadDetailSidebar({
                   </p>
                 )}
               </section>
+
+              {/* Activity — the last 20 audit entries for this lead. */}
+              <div className="mt-5">
+                <ActivityLog entityType="lead" entityId={lead.leadId} />
+              </div>
             </div>
           </>
         ) : null}

@@ -1,13 +1,37 @@
 "use client";
 
 import {
-  LEAD_STATUSES,
   PRIORITIES,
   LEAD_SOURCES,
   INDUSTRIES,
   SERVICES,
 } from "@/data/mockLeads";
+import {
+  MANUAL_LEAD_STATUSES,
+  LEAD_STATUS,
+  labelOf,
+} from "@/lib/statuses";
+import { formatINR } from "@/lib/format";
 import { useActiveDscs, useUsers } from "@/lib/usersConfig";
+
+// Manual lead-status options for a lead (derived statuses are never selectable).
+// Uses the lead's computed deal counts to gate `lost` (blocked when the lead has
+// any approved deal — started + delivered) and locks everything once it is Won.
+function statusOptionsFor(lead) {
+  const approved = (lead.dealsStarted || 0) + (lead.dealsDelivered || 0);
+  const locked = (lead.derivedStatus || lead.leadStatus) === LEAD_STATUS.WON;
+  const opts = MANUAL_LEAD_STATUSES.map((v) => ({
+    value: v,
+    label: labelOf(v),
+    disabled: locked,
+  }));
+  opts.push({
+    value: LEAD_STATUS.LOST,
+    label: labelOf(LEAD_STATUS.LOST),
+    disabled: locked || approved > 0,
+  });
+  return { options: opts, locked };
+}
 
 // Field type + options, derived from the column key. (Money fields — quoted,
 // closed, discount, lost reason — moved to the Deal, so they're no longer here.)
@@ -20,7 +44,13 @@ function fieldConfig(key) {
     case "leadSource":
       return { type: "select", options: LEAD_SOURCES };
     case "leadStatus":
-      return { type: "select", options: LEAD_STATUSES };
+      return { type: "status" };
+    case "dealsTotal":
+    case "dealsLive":
+    case "dealsStarted":
+    case "dealsDelivered":
+    case "wonValue":
+      return { type: "computed" };
     case "priority":
       return { type: "select", options: PRIORITIES };
     case "assignedDscId":
@@ -70,6 +100,31 @@ function Field({ column, lead, canEdit, canAssign, onChange, dscs }) {
   let control;
   if (cfg.type === "readonly") {
     control = <span className="font-mono text-slate-600">{value}</span>;
+  } else if (cfg.type === "computed") {
+    control = (
+      <span className="text-sm text-slate-700">
+        {key === "wonValue" ? (value ? formatINR(value) : "—") : value ?? 0}
+      </span>
+    );
+  } else if (cfg.type === "status") {
+    const { options, locked } = statusOptionsFor(lead);
+    control = (
+      <select
+        className={inputClass}
+        value={lead.leadStatus || ""}
+        disabled={!canEdit || locked}
+        onChange={(e) => set(e.target.value)}
+        title={
+          locked ? "This lead is Won (has an approved deal) — status locked." : ""
+        }
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value} disabled={o.disabled}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    );
   } else if (cfg.type === "select") {
     control = (
       <select
