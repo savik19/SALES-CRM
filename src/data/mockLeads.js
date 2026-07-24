@@ -30,75 +30,12 @@
 // ===========================================================================
 
 // ---- Option lists (values + display order for single/multi-selects) --------
-
-export const LEAD_STATUSES = [
-  "New",
-  "Attempted",
-  "Contacted",
-  "Details Shared",
-  "Interested",
-  "Qualified",
-  "Meeting Scheduled",
-  "Meeting Done",
-  "Proposal Sent",
-  "Negotiation",
-  "Won",
-  "Project Started",
-  "Project Delivered",
-  "Closed",
-  "Lost",
-  "On Hold",
-  "Cancelled",
-];
-
-// ---- Deal statuses (the sales pipeline for a single offering) --------------
-// Under the Lead → Deal model, a Deal is one confirmed offering. THESE are the
-// stages a deal moves through (the Pipeline board is a board of deals).
-//
-// The DSC moves a deal freely up to "Won" (the client has agreed). Advancing it
-// to "Project Started" is the MONEY EVENT: it needs the finalized amount and
-// Admin approval. Only an APPROVED deal (Project Started onward, with a
-// wonApprovedDate) is credited toward target + commission.
-export const DEAL_STATUSES = [
-  "Open",
-  "Proposal Sent",
-  "Negotiation",
-  "Won",
-  "Project Started",
-  "Project Delivered",
-  "Closed",
-  "Lost",
-  "On Hold",
-  "Cancelled",
-];
-
-// Entering one of these stages requires the finalized amount + Admin approval —
-// "Project Started" is the gate (delivery stages follow it). A DSC cannot set
-// these directly; the approval flow does (see dealsApi.approveDealWin).
-export const APPROVAL_GATED_DEAL_STATUSES = new Set([
-  "Project Started",
-  "Project Delivered",
-  "Closed",
-]);
-
-// A deal is CREDITED (counts toward target + commission) once it's approved —
-// i.e. it reaches a gated stage and carries a wonApprovedDate. "Won" alone is a
-// pre-approval "client agreed" stage and is NOT yet credited. Cancelled/Lost are
-// reversals; On Hold is paused.
-export const CREDITED_DEAL_STATUSES = APPROVAL_GATED_DEAL_STATUSES;
-
-// ---- Lead (prospect) statuses ----------------------------------------------
-// Under the new model the LEAD is a prospect record; winning happens on deals.
-// These are the prospect lifecycle states. Kept configurable for the Admin.
-export const PROSPECT_STATUSES = [
-  "New",
-  "Contacted",
-  "Interested",
-  "Converted",
-  "On Hold",
-  "Lost",
-  "Do Not Contact",
-];
+// Status values (lead status, deal stage, deal approval) now live in the single
+// source of truth: src/lib/statuses.js. Import from there — do NOT re-add status
+// string constants here. The mock leads below still carry the LEGACY Title-Case
+// status strings; withDates() migrates each to the new snake_case manual base
+// (see LEGACY_TO_MANUAL) and stashes the original as `_legacyStatus` so the deal
+// seeder (data/mockDeals) can place each lead's deals in the right stage.
 
 export const PRIORITIES = ["Low", "Medium", "High", "Urgent"];
 
@@ -1337,6 +1274,33 @@ const RAW_LEADS = [
 //   closedDate   — when a won lead was closed (won leads only; "" otherwise)
 // TODO(backend): return real assignedDate/closedDate on each lead.
 const _WON = new Set(["Won", "Project Started", "Project Delivered", "Closed"]);
+
+// Legacy (Title-Case) lead status → the new snake_case MANUAL base we store on
+// the lead. Transaction-progress statuses (Proposal Sent / Negotiation / the
+// won family) collapse onto a manual base; the DERIVED display status
+// (in_discussion / won) is computed from the lead's deals at render time (see
+// lib/leadStatus). `won` is stored directly so the one-way door holds even
+// before deals load.
+const LEGACY_TO_MANUAL = {
+  New: "new",
+  Attempted: "attempted",
+  Contacted: "contacted",
+  "Details Shared": "details_shared",
+  Interested: "interested",
+  Qualified: "interested",
+  "Meeting Scheduled": "meeting_scheduled",
+  "Meeting Done": "meeting_done",
+  "Proposal Sent": "interested",
+  Negotiation: "interested",
+  Won: "won",
+  "Project Started": "won",
+  "Project Delivered": "won",
+  Closed: "won",
+  "On Hold": "interested",
+  Lost: "lost",
+  Cancelled: "lost",
+};
+
 const REF_YEAR = 2026;
 const REF_MONTH = 7; // July 2026 — the baseline "current month" for the mock data
 function _ym(monthsBack, day) {
@@ -1392,15 +1356,20 @@ function _companyId(company) {
 function withDates(lead) {
   // eslint-disable-next-line no-unused-vars
   const { quotedAmount, closedAmount, lostReason, ...rest } = lead;
+  const legacy = lead.leadStatus; // original Title-Case status (for deal seeding)
   const n = _num(lead.leadId);
   const back = n % 4; // assigned 0–3 months ago
   const assignedDate = _ym(back, ((n * 7) % 27) + 1);
-  const won = _WON.has(lead.leadStatus);
+  const won = _WON.has(legacy);
   const closedDate = won
     ? _ym(back === 0 ? 0 : n % (back + 1), ((n * 5) % 27) + 1) // same month or newer
     : "";
   return {
     ...rest,
+    // Migrate to the new snake_case manual base; keep the legacy status for the
+    // deal seeder (data/mockDeals) to place deals in the right stage.
+    leadStatus: LEGACY_TO_MANUAL[legacy] || "new",
+    _legacyStatus: legacy,
     companyId: _companyId(lead.company),
     assignedDate,
     closedDate,

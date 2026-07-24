@@ -15,18 +15,14 @@
 // ---------------------------------------------------------------------------
 
 import { monthsSince } from "@/lib/format";
+import { DEAL_STAGE, DEAL_APPROVAL } from "@/lib/statuses";
 
-// A deal is a reversal if it was cancelled / lost / refunded. Kept local (rather
-// than importing from analytics) so this module has no circular dependency.
-function isDeadStatus(status) {
-  return status === "Lost" || status === "Cancelled";
-}
-
-// The status a Deal carries. Under the Lead → Deal model a deal uses `dealStatus`;
-// the older Company → Deal rows used `leadStatus`. Read either so the commission
-// engine works across both shapes during the migration.
-function statusOf(deal) {
-  return deal?.dealStatus ?? deal?.leadStatus;
+// A deal is "dead" (contributes no commission) once it is cancelled or reversed.
+function isDeadDeal(deal) {
+  return (
+    deal?.stage === DEAL_STAGE.CANCELLED ||
+    deal?.approval === DEAL_APPROVAL.REVERSED
+  );
 }
 
 // The quarterly hold: a commission is only finalized (payable) once this many
@@ -71,15 +67,44 @@ export function dealCommission(deal, config, role) {
 }
 
 // Commission a role earns on a single-offering Deal (Lead → Deal model): one
-// offering priced on the deal's closed amount (falls back to quoted when the
-// deal isn't closed yet). This is the per-deal commission used everywhere the
-// unit of sale is one deal = one offering.
+// offering priced on the deal's FINAL amount (never the quote). This is the
+// per-deal commission used everywhere the unit of sale is one deal = one offering.
 export function singleDealCommission(deal, config, role) {
   const offering = findOffering(config, deal?.offeringId);
   if (!offering) return 0;
   const rule = role === "bdm" ? offering.bdm : offering.dsc;
-  const amount = deal?.closedAmount ?? deal?.quotedAmount ?? 0;
+  const amount = deal?.finalAmount ?? deal?.quotedAmount ?? 0;
   return ruleAmount(rule, amount);
+}
+
+// Split a deal's commission into held (accrued, not yet payable) vs payable,
+// under the config's release trigger. PURE — the Earned(held)/Payable model:
+//   approval !== approved            → { held: 0, payable: 0 }
+//   trigger 'project_started'        → payable at approval
+//   trigger 'project_delivered'      → payable once stage is project_delivered,
+//                                      otherwise held
+//   reversed / cancelled             → { held: 0, payable: 0 } (clawed back)
+export function dealCommissionSplit(deal, config, role) {
+  if (!deal || isDeadDeal(deal)) return { held: 0, payable: 0 };
+  if (deal.approval !== DEAL_APPROVAL.APPROVED) return { held: 0, payable: 0 };
+  const amount = singleDealCommission(deal, config, role);
+  const trigger = config?.commissionReleaseTrigger || "project_delivered";
+  const released =
+    trigger === "project_started" ||
+    deal.stage === DEAL_STAGE.PROJECT_DELIVERED;
+  return released ? { held: 0, payable: amount } : { held: amount, payable: 0 };
+}
+
+// Roll a set of deals into held / payable totals for `role`.
+export function commissionSplitForDeals(deals, config, role) {
+  let held = 0;
+  let payable = 0;
+  for (const d of deals || []) {
+    const s = dealCommissionSplit(d, config, role);
+    held += s.held;
+    payable += s.payable;
+  }
+  return { held, payable, total: held + payable };
 }
 
 // The Closed (contract) value of a Deal = Σ of its line-item amounts. Deriving
@@ -92,10 +117,10 @@ export function dealClosedValue(deal) {
   );
 }
 
-// True once a deal is a reversal (cancelled / lost / refunded) — its commission
-// is clawed back to 0 regardless of the hold.
+// True once a deal is a reversal (cancelled / reversed) — its commission is
+// clawed back to 0 regardless of the hold.
 export function isReversedDeal(deal) {
-  return !!deal && (deal.cancelled === true || isDeadStatus(statusOf(deal)));
+  return isDeadDeal(deal);
 }
 
 // The lifecycle of a Deal's commission, given "now":

@@ -31,16 +31,17 @@ export function formatINR(amount) {
   return `Rs. ${n.toLocaleString("en-IN")}`;
 }
 
-// Discount % = (Quoted − Closed) / Quoted × 100. COMPUTED, never stored.
-// Returns a number, or null when it can't be computed (no quoted / no closed).
-export function discountPct(lead) {
-  const quoted = Number(lead.quotedAmount);
-  const closed = Number(lead.closedAmount);
+// Discount % = (Quoted − Final) / Quoted × 100. COMPUTED, never stored.
+// Reads `finalAmount` (deals), falling back to legacy `closedAmount`.
+// Returns a number, or null when it can't be computed (no quoted / no final).
+export function discountPct(deal) {
+  const quoted = Number(deal.quotedAmount);
+  const finalRaw = deal.finalAmount ?? deal.closedAmount;
+  const final = Number(finalRaw);
   if (!quoted || Number.isNaN(quoted)) return null; // dash when Quoted is empty
-  if (lead.closedAmount === null || lead.closedAmount === undefined)
-    return null;
-  if (Number.isNaN(closed)) return null;
-  return ((quoted - closed) / quoted) * 100;
+  if (finalRaw === null || finalRaw === undefined) return null;
+  if (Number.isNaN(final)) return null;
+  return ((quoted - final) / quoted) * 100;
 }
 
 // Discount % as a display string, e.g. "12.6%" or "—".

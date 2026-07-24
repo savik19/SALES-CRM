@@ -27,7 +27,11 @@
  * @property {string} website           URL; may be "".
  * @property {string} linkedinUrl       URL; may be "".
  * @property {string} leadSource        One of LEAD_SOURCES.
- * @property {string} leadStatus        One of LEAD_STATUSES (pipeline order).
+ * @property {string} leadStatus        One of LEAD_STATUS (see lib/statuses). 7
+ *                                      are manual; `in_discussion` and `won` are
+ *                                      SERVER-DERIVED from the lead's deals (see
+ *                                      lib/leadStatus) and never accepted on
+ *                                      write; `lost` is manual but gated.
  * @property {string} priority          One of PRIORITIES.
  * @property {string} assignedDscId     Owning DSC id (see TeamMember.id).
  * @property {number} attemptCount      Contact attempts.
@@ -53,23 +57,73 @@
  * @property {string} offeringId     The single catalog offering sold (FK). Its
  *                                   compensation rule prices this deal.
  * @property {string} ownerId        Owning DSC (FK → TeamMember.id).
- * @property {string} dealStatus     One of DEAL_STATUSES (the pipeline stage).
+ * @property {string} stage          One of DEAL_STAGE (see lib/statuses): open,
+ *                                   proposal_sent, negotiation, project_started
+ *                                   (system, on approval), project_delivered
+ *                                   (Admin), cancelled. INDEPENDENT of `approval`.
+ * @property {string} approval       One of DEAL_APPROVAL: not_requested, pending,
+ *                                   approved, rejected, reversed.
  * @property {number|null} quotedAmount  Rupees pitched, or null.
- * @property {number|null} closedAmount  Rupees finalized/agreed, or null.
- * @property {string} lostReason     One of LOST_REASONS; only when dealStatus
- *                                   is "Lost". Discount % is derived from
- *                                   quoted/closed, never stored.
+ * @property {number|null} finalAmount   Rupees finalized/agreed, or null. The
+ *                                   commission base (never quotedAmount). Discount
+ *                                   % is derived from quoted vs final, never stored.
+ * @property {string} lostReason     One of LOST_REASONS; only when the deal is
+ *                                   cancelled.
  * @property {string} createdDate    ISO "YYYY-MM-DD".
- * @property {string} approvalStatus "" | "pending" | "approved" | "rejected".
- * @property {Object|null} approvalRequest  Snapshot sent for approval.
- * @property {string} approvalReason Rejection reason, if any.
- * @property {string} wonApprovedDate ISO date the Admin approved the win; only
- *                                    deals with this set count as won.
+ * @property {Object|null} approvalRequest  Snapshot captured at request time.
+ * @property {string} approvalReason Rejection / reversal reason, if any.
+ * @property {string} wonApprovedDate  ISO date the Admin approved (stage →
+ *                                   project_started, commission accrued).
+ * @property {string} deliveredDate  ISO date the Admin set project_delivered
+ *                                   (commission released), or "".
  * @property {string} approvalDecidedBy   Admin id who decided.
  * @property {string} approvalDecidedDate ISO date of the decision.
  * @property {string} paymentStatus  "Pending" | "Partial" | "Paid".
  * @property {number} receivedAmount Rupees received so far.
  * @property {string} notes          Free-form text.
+ */
+
+/**
+ * A catalog Offering — the thing a Deal sells; its rule prices the commission.
+ * @typedef {Object} Offering
+ * @property {string} id
+ * @property {string} name              e.g. "Website Development".
+ * @property {'service'|'product'} kind
+ * @property {{type:'fixed'|'percent',value:number}} dsc  What the closing DSC earns.
+ * @property {{type:'fixed'|'percent',value:number}} bdm  The BDM manager override.
+ * @property {boolean} active           Inactive offerings can't start a NEW deal.
+ */
+
+/**
+ * A commission ledger entry (append-only). See lib/commissionLedger.
+ * @typedef {Object} CommissionEntry
+ * @property {string} id
+ * @property {string} dealId
+ * @property {string} leadId
+ * @property {string} userId        Deal owner at the time of the event.
+ * @property {'accrual'|'release'|'reversal'} type
+ * @property {number} amount        Signed: reversal is negative.
+ * @property {number} basisAmount   The finalAmount used.
+ * @property {string} offeringId
+ * @property {string} ruleSnapshot  JSON of the comp rule AT THAT MOMENT.
+ * @property {string} createdAt
+ * @property {string} createdBy
+ * @property {string} [reason]
+ */
+
+/**
+ * An audit-trail entry. See lib/audit.
+ * @typedef {Object} AuditEntry
+ * @property {string} id
+ * @property {'lead'|'deal'} entityType
+ * @property {string} entityId
+ * @property {string} field
+ * @property {*} from
+ * @property {*} to
+ * @property {string} userId
+ * @property {string} role
+ * @property {string} at
+ * @property {string} [reason]
  */
 
 /**

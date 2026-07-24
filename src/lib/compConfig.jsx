@@ -109,6 +109,14 @@ export const DEFAULT_COMP = {
   // Zero for now — the company isn't deducting PF/tax yet; the Admin can set it
   // later without any code change.
   deductionPct: 0,
+  // When a deal's commission becomes PAYABLE (see lib/commissionLedger):
+  //   'project_started'   — full amount payable at approval (original spec).
+  //   'project_delivered' — RECOMMENDED default: commission ACCRUES at approval
+  //     (shown as "Earned (held)") and RELEASES at delivery (becomes "Payable").
+  // Accrue-then-release keeps the motivational signal immediate while keeping the
+  // cash risk controlled — a project that dies mid-flight never becomes a clawback
+  // against a DSC who has already been paid.
+  commissionReleaseTrigger: "project_delivered",
   // ---- Commission catalog (Services & Products) ----------------------------
   // Seeded from ScriptGuru's offerings; every field is Admin-editable. Services
   // pay a flat amount; the SaaS product pays a % of the plan value. BDM rates are
@@ -215,6 +223,9 @@ function withDefaults(saved) {
   return {
     ...base,
     ...saved,
+    // Ensure the release-trigger flag exists on configs saved before it did.
+    commissionReleaseTrigger:
+      saved.commissionReleaseTrigger || base.commissionReleaseTrigger,
     bdm: { ...base.bdm, ...migrateTarget(saved.bdm) },
     dsc: { ...base.dsc, ...migrateTarget(saved.dsc) },
     // Catalog arrays: use the saved list if present, else seed from defaults.

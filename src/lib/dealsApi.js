@@ -3,16 +3,30 @@
 // ===========================================================================
 //  The UI never imports deal rows directly — every screen calls the functions
 //  below. To go live, fill in the `fetch(...)` calls (templates provided); the
-//  mock branch falls away and the UI keeps working because the RETURN SHAPE
-//  stays identical (see src/lib/types.js → Deal and docs/API_CONTRACT.md).
+//  mock branch falls away because the RETURN SHAPE stays identical (see
+//  src/lib/types.js → Deal and docs/API_CONTRACT.md).
 //
-//  A Deal is ONE offering under a Lead (Lead → Deal model). Money, status,
-//  approval, commission and target all live here. `POST /api/deals`,
-//  `PATCH /api/deals/:id`, and the win-approval endpoints mirror the leads API.
+//  A Deal has TWO independent fields (see lib/statuses): `stage` (the pipeline)
+//  and `approval` (the money control). The approval flow — request → approve /
+//  reject / deliver / reverse — is the money event: it writes to the commission
+//  LEDGER (accrual on approve, release on deliver, reversal on reverse) and the
+//  AUDIT trail. Every rule enforced here is ALSO documented in API_CONTRACT.md so
+//  the Laravel team mirrors it server-side. TODO(backend): the ledger + audit
+//  writes belong on the server; the UI must never write them directly.
 // ===========================================================================
 
 import { MOCK_DEALS } from "@/data/mockDeals";
 import { API_BASE_URL, USE_MOCK_DATA } from "@/lib/config";
+import {
+  DEAL_STAGE,
+  DEAL_APPROVAL,
+  labelOf,
+} from "@/lib/statuses";
+import { recordAudit } from "@/lib/audit";
+import {
+  recordLedgerEntry,
+  ENTRY_TYPE,
+} from "@/lib/commissionLedger";
 
 function simulateLatency(value, ms = 150) {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms));
@@ -37,13 +51,19 @@ async function apiSend(method, path, body) {
   return res.json();
 }
 
-// Mock helper: mutate the shared MOCK_DEALS record in place so a change on one
-// screen (a DSC's win request) is visible on another (the Admin's Approvals
-// screen) within the session. A real backend persists to the DB.
+// Mutate the shared MOCK_DEALS record in place so a change on one screen is
+// visible on another within the session. A real backend persists to the DB.
+function mockGet(dealId) {
+  return MOCK_DEALS.find((d) => d.dealId === dealId);
+}
 function mockPatch(dealId, changes) {
-  const deal = MOCK_DEALS.find((d) => d.dealId === dealId);
+  const deal = mockGet(dealId);
   if (deal) Object.assign(deal, changes);
   return deal ? { ...deal } : { dealId, ...changes };
+}
+
+function today() {
+  return new Date().toISOString().slice(0, 10);
 }
 
 let _newDealSeq = 0;
@@ -61,7 +81,6 @@ export async function getDeals() {
 /**
  * GET /api/leads/:leadId/deals — the deals belonging to one lead.
  * @param {string} leadId
- * @returns {Promise<import('@/lib/types').Deal[]>}
  */
 export async function getDealsByLead(leadId) {
   if (!USE_MOCK_DATA) return apiGet(`/api/leads/${leadId}/deals`);
@@ -71,26 +90,29 @@ export async function getDealsByLead(leadId) {
 }
 
 /**
- * POST /api/deals — create a deal for a lead (one offering). The backend assigns
- * the id. Enforce that the parent lead is Interested/qualified server-side.
+ * POST /api/deals — create a deal for a lead (one offering). New deals start at
+ * stage `open`, approval `not_requested`. The backend assigns the id.
  * @param {Partial<import('@/lib/types').Deal>} deal
- * @returns {Promise<import('@/lib/types').Deal>}
  */
 export async function createDeal(deal) {
   if (!USE_MOCK_DATA) return apiSend("POST", `/api/deals`, deal);
   const dealId = deal.dealId || `DEAL-NEW-${++_newDealSeq}`;
   const record = {
-    dealStatus: "Open",
+    stage: DEAL_STAGE.OPEN,
+    approval: DEAL_APPROVAL.NOT_REQUESTED,
     quotedAmount: null,
-    closedAmount: null,
+    finalAmount: null,
     lostReason: "",
-    approvalStatus: "",
     approvalRequest: null,
     approvalReason: "",
     wonApprovedDate: "",
+    deliveredDate: "",
+    approvalDecidedBy: "",
+    approvalDecidedDate: "",
     paymentStatus: "Pending",
     receivedAmount: 0,
     notes: "",
+    createdDate: today(),
     ...deal,
     dealId,
   };
@@ -98,85 +120,233 @@ export async function createDeal(deal) {
   return simulateLatency({ ...record });
 }
 
+// Fields we track in the audit trail on a plain PATCH.
+const AUDITED_FIELDS = [
+  { key: "stage", label: "stage" },
+  { key: "finalAmount", label: "finalAmount" },
+  { key: "quotedAmount", label: "quotedAmount" },
+  { key: "ownerId", label: "owner" },
+  { key: "offeringId", label: "offering" },
+];
+
 /**
- * PATCH /api/deals/:dealId — update a deal's fields (status, value, owner…).
+ * PATCH /api/deals/:dealId — update a deal's plain fields (stage, amounts,
+ * owner, offering). Records an audit entry per tracked field that changed.
+ * `actor` = { id, role } (for the audit trail). Approval transitions have their
+ * own endpoints below — do NOT set `approval` through here.
  * @param {string} dealId
  * @param {Partial<import('@/lib/types').Deal>} changes
- * @returns {Promise<import('@/lib/types').Deal>}
+ * @param {{actor?:{id:string,role:string}}} [opts]
  */
-export async function updateDeal(dealId, changes) {
+export async function updateDeal(dealId, changes, { actor } = {}) {
   if (!USE_MOCK_DATA) return apiSend("PATCH", `/api/deals/${dealId}`, changes);
+  const before = mockGet(dealId);
+  if (before && actor) {
+    for (const { key, label } of AUDITED_FIELDS) {
+      if (key in changes && changes[key] !== before[key]) {
+        recordAudit({
+          entityType: "deal",
+          entityId: dealId,
+          field: label,
+          from: key === "stage" ? labelOf(before[key]) : before[key],
+          to: key === "stage" ? labelOf(changes[key]) : changes[key],
+          actor,
+        });
+      }
+    }
+  }
   return simulateLatency(mockPatch(dealId, changes));
 }
 
 /**
- * POST /api/deals/:dealId/request-win — the deal owner requests Admin approval
- * to win the deal. `payload` snapshots the financials. Sets approvalStatus
- * "pending"; the dealStatus becomes "Won" only when the Admin approves.
+ * POST /api/deals/:dealId/request-approval — the owner submits the deal for
+ * Admin approval to start the project. Sets approval `pending` (stage freezes).
+ * `payload` snapshots the financials. Enforce the eligibility gate server-side.
  * @param {string} dealId
- * @param {{requestedBy:string, requestedDate:string, quotedAmount:number,
- *   closedAmount:number, note?:string}} payload
+ * @param {{actor:{id:string,role:string}, payload:object}} args
  */
-export async function requestDealWin(dealId, payload) {
+export async function requestApproval(dealId, { actor, payload }) {
   if (!USE_MOCK_DATA)
-    return apiSend("POST", `/api/deals/${dealId}/request-win`, payload);
+    return apiSend("POST", `/api/deals/${dealId}/request-approval`, payload);
+  const before = mockGet(dealId);
+  recordAudit({
+    entityType: "deal",
+    entityId: dealId,
+    field: "approval",
+    from: labelOf(before?.approval),
+    to: labelOf(DEAL_APPROVAL.PENDING),
+    actor,
+  });
   return simulateLatency(
     mockPatch(dealId, {
-      approvalStatus: "pending",
-      approvalRequest: payload,
+      approval: DEAL_APPROVAL.PENDING,
+      approvalRequest: payload || null,
       approvalReason: "",
     })
   );
 }
 
 /**
- * POST /api/deals/:dealId/approve-win — Admin approves: applies the requested
- * financials, advances the deal to the requested gated stage (default
- * "Project Started") and stamps wonApprovedDate (the deal is now credited for
- * target + commission). Admin-only.
- * @param {string} dealId
- * @param {{adminId:string, approvedDate:string}} decision
+ * POST /api/deals/:dealId/withdraw-approval — the owner withdraws a pending
+ * request; the deal returns to `not_requested` and becomes editable again.
  */
-export async function approveDealWin(dealId, { adminId, approvedDate }) {
+export async function withdrawApproval(dealId, { actor }) {
   if (!USE_MOCK_DATA)
-    return apiSend("POST", `/api/deals/${dealId}/approve-win`, {
-      adminId,
-      approvedDate,
-    });
-  const deal = MOCK_DEALS.find((d) => d.dealId === dealId);
-  const req = deal?.approvalRequest || {};
+    return apiSend("POST", `/api/deals/${dealId}/withdraw-approval`, {});
+  const before = mockGet(dealId);
+  recordAudit({
+    entityType: "deal",
+    entityId: dealId,
+    field: "approval",
+    from: labelOf(before?.approval),
+    to: labelOf(DEAL_APPROVAL.NOT_REQUESTED),
+    actor,
+  });
   return simulateLatency(
     mockPatch(dealId, {
-      dealStatus: req.requestedStatus || "Project Started",
-      quotedAmount: req.quotedAmount ?? deal?.quotedAmount,
-      closedAmount: req.closedAmount ?? deal?.closedAmount,
-      wonApprovedDate: approvedDate,
-      approvalStatus: "approved",
-      approvalDecidedBy: adminId,
-      approvalDecidedDate: approvedDate,
+      approval: DEAL_APPROVAL.NOT_REQUESTED,
+      approvalRequest: null,
     })
   );
 }
 
 /**
- * POST /api/deals/:dealId/reject-win — Admin rejects with a reason; the deal
- * keeps its prior status so the owner can revise and resubmit.
+ * POST /api/deals/:dealId/approve — ADMIN ONLY. Atomically: approval →
+ * `approved`, stage → `project_started`, write a commission ACCRUAL ledger
+ * entry for the owner, and append an audit entry. `config` prices the accrual.
  * @param {string} dealId
- * @param {{adminId:string, reason:string, decidedDate:string}} decision
+ * @param {{actor:{id:string,role:string}, config:object, approvedDate?:string}} args
  */
-export async function rejectDealWin(dealId, { adminId, reason, decidedDate }) {
+export async function approveDeal(dealId, { actor, config, approvedDate }) {
   if (!USE_MOCK_DATA)
-    return apiSend("POST", `/api/deals/${dealId}/reject-win`, {
-      adminId,
+    return apiSend("POST", `/api/deals/${dealId}/approve`, {
+      adminId: actor?.id,
+      approvedDate,
+    });
+  const deal = mockGet(dealId);
+  const req = deal?.approvalRequest || {};
+  const date = approvedDate || today();
+  const patched = mockPatch(dealId, {
+    approval: DEAL_APPROVAL.APPROVED,
+    stage: DEAL_STAGE.PROJECT_STARTED,
+    quotedAmount: req.quotedAmount ?? deal?.quotedAmount,
+    finalAmount: req.finalAmount ?? deal?.finalAmount,
+    wonApprovedDate: date,
+    approvalDecidedBy: actor?.id || "u-admin",
+    approvalDecidedDate: date,
+  });
+  // Money event: accrue commission for the owner (held until delivery).
+  recordLedgerEntry({
+    type: ENTRY_TYPE.ACCRUAL,
+    deal: mockGet(dealId),
+    config,
+    createdBy: actor?.id || "u-admin",
+  });
+  recordAudit({
+    entityType: "deal",
+    entityId: dealId,
+    field: "approval",
+    from: labelOf(DEAL_APPROVAL.PENDING),
+    to: labelOf(DEAL_APPROVAL.APPROVED),
+    actor,
+  });
+  return simulateLatency(patched);
+}
+
+/**
+ * POST /api/deals/:dealId/reject — ADMIN ONLY. approval → `rejected`, stage
+ * unchanged, rejection REASON required. The deal returns to editable.
+ */
+export async function rejectDeal(dealId, { actor, reason, decidedDate }) {
+  if (!USE_MOCK_DATA)
+    return apiSend("POST", `/api/deals/${dealId}/reject`, {
+      adminId: actor?.id,
       reason,
       decidedDate,
     });
+  const date = decidedDate || today();
+  recordAudit({
+    entityType: "deal",
+    entityId: dealId,
+    field: "approval",
+    from: labelOf(DEAL_APPROVAL.PENDING),
+    to: labelOf(DEAL_APPROVAL.REJECTED),
+    actor,
+    reason,
+  });
   return simulateLatency(
     mockPatch(dealId, {
-      approvalStatus: "rejected",
+      approval: DEAL_APPROVAL.REJECTED,
       approvalReason: reason,
-      approvalDecidedBy: adminId,
-      approvalDecidedDate: decidedDate,
+      approvalDecidedBy: actor?.id || "u-admin",
+      approvalDecidedDate: date,
     })
   );
+}
+
+/**
+ * POST /api/deals/:dealId/deliver — ADMIN ONLY, on an approved deal. stage →
+ * `project_delivered`. RELEASES the held commission (ledger release entry).
+ */
+export async function deliverDeal(dealId, { actor, config, date }) {
+  if (!USE_MOCK_DATA)
+    return apiSend("POST", `/api/deals/${dealId}/deliver`, { adminId: actor?.id });
+  const d = date || today();
+  const patched = mockPatch(dealId, {
+    stage: DEAL_STAGE.PROJECT_DELIVERED,
+    deliveredDate: d,
+  });
+  recordLedgerEntry({
+    type: ENTRY_TYPE.RELEASE,
+    deal: mockGet(dealId),
+    config,
+    createdBy: actor?.id || "u-admin",
+  });
+  recordAudit({
+    entityType: "deal",
+    entityId: dealId,
+    field: "stage",
+    from: labelOf(DEAL_STAGE.PROJECT_STARTED),
+    to: labelOf(DEAL_STAGE.PROJECT_DELIVERED),
+    actor,
+  });
+  return simulateLatency(patched);
+}
+
+/**
+ * POST /api/deals/:dealId/reverse — ADMIN ONLY, on an approved deal. Atomically:
+ * approval → `reversed`, stage → `cancelled`, REASON required, and write a
+ * NEGATIVE ledger entry reversing the accrual. A started project that fell through.
+ */
+export async function reverseDeal(dealId, { actor, config, reason, date }) {
+  if (!USE_MOCK_DATA)
+    return apiSend("POST", `/api/deals/${dealId}/reverse`, {
+      adminId: actor?.id,
+      reason,
+    });
+  const d = date || today();
+  const patched = mockPatch(dealId, {
+    approval: DEAL_APPROVAL.REVERSED,
+    stage: DEAL_STAGE.CANCELLED,
+    approvalReason: reason,
+    approvalDecidedBy: actor?.id || "u-admin",
+    approvalDecidedDate: d,
+  });
+  recordLedgerEntry({
+    type: ENTRY_TYPE.REVERSAL,
+    deal: mockGet(dealId),
+    config,
+    createdBy: actor?.id || "u-admin",
+    reason,
+  });
+  recordAudit({
+    entityType: "deal",
+    entityId: dealId,
+    field: "approval",
+    from: labelOf(DEAL_APPROVAL.APPROVED),
+    to: labelOf(DEAL_APPROVAL.REVERSED),
+    actor,
+    reason,
+  });
+  return simulateLatency(patched);
 }
